@@ -1,0 +1,37 @@
+name: Build and deploy to MonsterASP
+
+# Builds on every push. Deploys too, once the MonsterASP Web Deploy secrets are added to this repository
+# (Settings → Secrets and variables → Actions): WEBSITE_NAME, SERVER_COMPUTER_NAME, SERVER_USERNAME, SERVER_PASSWORD,
+# and MOBA_CONNECTION_STRING for the database. Without them it only builds.
+on:
+  push:
+    branches: [master]
+  workflow_dispatch:
+
+jobs:
+  build-deploy:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 8.0.x
+      - run: dotnet publish Starfall.Grove.Moba.API.csproj -c Release -o publish
+      - name: Add the database connection string
+        if: ${{ env.CS != '' }}
+        env:
+          CS: ${{ secrets.MOBA_CONNECTION_STRING }}
+        shell: pwsh
+        run: |
+          @{ ConnectionStrings = @{ Moba = $env:CS } } | ConvertTo-Json | Set-Content -Path publish/appsettings.Production.json -Encoding utf8
+      - name: Deploy with Web Deploy
+        if: ${{ env.SITE != '' }}
+        env:
+          SITE: ${{ secrets.WEBSITE_NAME }}
+        uses: rasmusbuchholdt/simply-web-deploy@2.1.0
+        with:
+          website-name: ${{ secrets.WEBSITE_NAME }}
+          server-computer-name: ${{ secrets.SERVER_COMPUTER_NAME }}
+          server-username: ${{ secrets.SERVER_USERNAME }}
+          server-password: ${{ secrets.SERVER_PASSWORD }}
+          source-path: '\publish\'
