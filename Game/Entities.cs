@@ -51,6 +51,8 @@ public class Unit
     public int OwnerId;
     public float LifeT = -1;
     public float Gold, Xp;
+    /// <summary>Which lane a minion walks, a tower guards, or a bot plays.</summary>
+    public int Lane;
 
     public bool Alive => !Dead;
     public bool Stunned => StunT > 0;

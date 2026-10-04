@@ -32,8 +32,10 @@ public sealed partial class Match
     private readonly List<FxDto> _fx = [];
     private readonly List<Unit> _spawnQueue = [];
 
-    private readonly Unit[][] _towers = [[], new Unit[2], new Unit[2]];
-    private readonly Unit[] _cores = new Unit[3];
+    /// <summary>[team][lane][0] the lane's outer tower, [1] its inner one. Empty in a duel.</summary>
+    private readonly Unit[][][] _towers = [[], [], []];
+    private readonly Unit?[] _cores = new Unit?[3];
+    public bool Duel => Map.Duel;
     private readonly float[] _plantAt;
     private readonly float[] _campAt;
     private float _objectiveAt = ObjectiveFirst;
@@ -52,16 +54,25 @@ public sealed partial class Match
         _campAt = new float[map.Camps.Count];
         for (var i = 0; i < _campAt.Length; i++) _campAt[i] = 15;
 
+        // More lanes means more towers to break, so each one is a little weaker.
+        var lanes = map.Lanes.Count;
+        var towerScale = lanes switch { 3 => .7f, 2 => .82f, _ => 1f };
         foreach (var team in new[] { 1, 2 })
         {
-            for (var i = 0; i < 2; i++)
+            if (map.Duel) continue;
+            _towers[team] = new Unit[lanes][];
+            for (var l = 0; l < lanes; l++)
             {
-                var t = Add(new Unit
+                _towers[team][l] = new Unit[2];
+                for (var i = 0; i < 2; i++)
                 {
-                    Kind = UnitKind.Tower, Sub = "tower", Team = team, Pos = map.Towers[team][i], Radius = 46,
-                    Hp = i == 0 ? 2600 : 3000, MaxHp = i == 0 ? 2600 : 3000, AttackRange = 520, AttackDamage = 130, AttackCd = 1.1f,
-                });
-                _towers[team][i] = t;
+                    var hp = (i == 0 ? 2600 : 3000) * towerScale;
+                    _towers[team][l][i] = Add(new Unit
+                    {
+                        Kind = UnitKind.Tower, Sub = "tower", Team = team, Pos = map.Towers[team][l][i], Radius = 46, Lane = l,
+                        Hp = hp, MaxHp = hp, AttackRange = 520, AttackDamage = 130, AttackCd = 1.1f,
+                    });
+                }
             }
             _cores[team] = Add(new Unit
             {
@@ -79,9 +90,10 @@ public sealed partial class Match
                 Kind = UnitKind.Hero, Sub = def.Id, Def = def, PlayerId = p.Id, Name = p.Name, Team = p.Team,
                 Radius = 24, Armor = def.Armor, Speed = def.Speed, BaseHp = def.Hp,
                 AttackRange = def.Basic.Range, AttackDamage = def.Basic.Power, AttackCd = def.Basic.Cooldown,
-                MaxMana = def.Mana, Mana = def.Mana, ManaRegen = def.ManaRegen, GoldBank = 150,
+                MaxMana = def.Mana, Mana = def.Mana, ManaRegen = def.ManaRegen, GoldBank = map.Duel ? DuelStartGold : 150,
             };
             h.MaxHp = h.Hp = def.Hp;
+            h.Lane = map.Duel ? 0 : slot[p.Team] % map.Lanes.Count;
             h.Pos = SpawnPoint(p.Team, slot[p.Team]++);
             h.Facing = new Vec(p.Team == 1 ? 1 : -1, 0);
             Add(h);
@@ -93,6 +105,17 @@ public sealed partial class Match
             }
         }
         FlushSpawns();
+        if (map.Duel)
+        {
+            // Duellists start part-way up the levels, with the ultimate ready.
+            foreach (var h in Heroes)
+            {
+                GiveXp(h, Enumerable.Range(1, DuelStartLevel - 1).Sum(Catalog.XpToNext), quiet: true);
+                // Duellists are much hardier than on the battlefield, so a round is a fight, not one combo.
+                h.MaxHp *= DuelHealth; h.Hp = h.MaxHp;
+            }
+            StartRound();
+        }
     }
 
     public Vec SpawnPoint(int team, int i) => Map.Spawn[team] + new Vec((team == 1 ? 1 : -1) * (i % 2) * 40, (i - 1) * 55);
@@ -121,10 +144,14 @@ public sealed partial class Match
         if (Winner != 0) return;
         Time += Dt;
 
-        UpdateSuddenDeath();
-        SpawnWaves();
-        SpawnNeutrals();
-        UpdatePlants();
+        if (Duel) UpdateRound();
+        else
+        {
+            UpdateSuddenDeath();
+            SpawnWaves();
+            SpawnNeutrals();
+            UpdatePlants();
+        }
 
         foreach (var h in Heroes) UpdateHero(h);
         foreach (var u in Units)
@@ -166,7 +193,7 @@ public sealed partial class Match
     {
         get
         {
-            int Down(int team) => _towers[team].Count(t => t.Dead);
+            int Down(int team) => _towers[team].Sum(lane => lane.Count(t => t.Dead));
             var lead = (Down(2) - Down(1)) * 100 + (Score[1] - Score[2]);
             return lead > 0 ? 1 : lead < 0 ? 2 : _lastWarden;
         }
@@ -181,28 +208,35 @@ public sealed partial class Match
         if (Time < _waveAt) return;
         _waveAt += WaveInterval;
         _wave++;
-        var kinds = new List<string> { "melee", "melee", "melee", "ranged", "ranged" };
+        // Smaller waves when there are more lanes, so the total stays about the same.
+        var kinds = Map.Lanes.Count switch
+        {
+            1 => new List<string> { "melee", "melee", "melee", "ranged", "ranged" },
+            2 => ["melee", "melee", "ranged", "ranged"],
+            _ => ["melee", "melee", "ranged"],
+        };
         if (_wave % 3 == 0 || _suddenStage > 0) kinds.Insert(0, "heavy");
         if (_suddenStage >= 2) kinds.Insert(0, "heavy");
         if (_wave == 1) Fx(new FxDto { E = "notice", K = "minions" });
         foreach (var team in new[] { 1, 2 })
-        {
-            var path = Map.PathFor(team);
-            for (var i = 0; i < kinds.Count; i++)
+            for (var lane = 0; lane < Map.Lanes.Count; lane++)
             {
-                var kind = kinds[i];
-                var delay = i * .55f;
-                _delayed.Add(new Delayed { At = Time + delay, Run = () => SpawnMinion(team, kind, path) });
+                var path = Map.PathFor(team, lane);
+                var l = lane;
+                for (var i = 0; i < kinds.Count; i++)
+                {
+                    var kind = kinds[i];
+                    _delayed.Add(new Delayed { At = Time + i * .55f, Run = () => SpawnMinion(team, kind, path, l) });
+                }
             }
-        }
     }
 
-    private void SpawnMinion(int team, string kind, List<Vec> path)
+    private void SpawnMinion(int team, string kind, List<Vec> path, int lane)
     {
         var scale = 1 + .04f * (_wave - 1) + (_suddenStage * .25f);
         // Sudden death: the team ahead gets the Star's favour, so an even lane can't stall forever.
         if (_suddenStage > 0 && team == FavouredTeam) scale *= _suddenStage >= 2 ? 1.9f : 1.5f;
-        var u = new Unit { Kind = UnitKind.Minion, Sub = kind, Team = team, Pos = path[1], Path = path, PathIndex = 2 };
+        var u = new Unit { Kind = UnitKind.Minion, Sub = kind, Team = team, Pos = path[1], Path = path, PathIndex = 2, Lane = lane };
         switch (kind)
         {
             case "heavy": u.MaxHp = 700; u.AttackDamage = 34; u.AttackCd = 1.6f; u.AttackRange = 90; u.Speed = 170; u.Radius = 26; u.Gold = 45; u.Xp = 60; break;
@@ -229,21 +263,21 @@ public sealed partial class Match
                 var pos = camp.Pos + new Vec(i == 0 ? 0 : (i % 2 == 0 ? -1 : 1) * 70, i == 0 ? 0 : 40);
                 var u = new Unit
                 {
-                    Kind = UnitKind.Monster, Sub = kind, Team = 0, Pos = pos, Home = pos, CampIndex = c, Radius = big ? 30 : 20,
-                    MaxHp = (big ? 650 : 320) + minute * (big ? 70 : 35), AttackDamage = big ? 30 : 22, AttackCd = big ? 1.2f : 1.3f,
-                    AttackRange = big ? 80 : 260, Speed = big ? 240 : 220, Gold = big ? 50 : 30, Xp = big ? 60 : 35,
+                    Kind = UnitKind.Monster, Sub = kind, Team = 0, Pos = pos, Home = pos, CampIndex = c, Radius = big ? 30 : 22,
+                    MaxHp = (big ? 650 : 380) + minute * (big ? 70 : 40), AttackDamage = big ? 30 : 24, AttackCd = big ? 1.2f : 1f,
+                    AttackRange = 75, Speed = big ? 240 : 280, Gold = big ? 50 : 32, Xp = big ? 60 : 38,
                     Facing = new Vec(c == 0 ? 1 : -1, 0),
                 };
                 u.Hp = u.MaxHp;
                 Add(u);
             }
         }
-        if (_warden == null && Time >= _objectiveAt)
+        if (_warden == null && Time >= _objectiveAt && Map.Objective is { } objective)
         {
             var minute = Time / 60;
             _warden = Add(new Unit
             {
-                Kind = UnitKind.Monster, Sub = "warden", Team = 0, Pos = Map.Objective, Home = Map.Objective, Radius = 52,
+                Kind = UnitKind.Monster, Sub = "warden", Team = 0, Pos = objective, Home = objective, Radius = 52,
                 MaxHp = 2600 + minute * 200, Hp = 2600 + minute * 200, AttackDamage = 70, AttackCd = 1.6f, AttackRange = 280, Speed = 160, Xp = 120,
                 Facing = new Vec(0, 1),
             });
@@ -272,11 +306,12 @@ public sealed partial class Match
     {
         if (h.Dead)
         {
+            if (Duel) return;
             h.RespawnT -= Dt;
             if (h.RespawnT <= 0) Respawn(h);
             return;
         }
-        h.GoldBank += 2.5f * Dt;
+        if (!Duel) h.GoldBank += 2.5f * Dt;
         h.Mana = MathF.Min(h.MaxMana, h.Mana + h.ManaRegen * Dt);
         if (Time - LastHurt(h) > 6) h.Hp = MathF.Min(h.MaxHp, h.Hp + h.MaxHp * .006f * Dt * 10);
         for (var i = 0; i < 5; i++) if (h.Cooldowns[i] > 0) h.Cooldowns[i] = MathF.Max(0, h.Cooldowns[i] - Dt);
@@ -284,12 +319,15 @@ public sealed partial class Match
         if (h.AggroT > 0) h.AggroT -= Dt;
 
         // The fountain: heals friends quickly and burns enemies who come too close.
-        foreach (var team in new[] { 1, 2 })
-        {
-            if (Vec.Dist(h.Pos, Map.Spawn[team]) > MapDef.FountainRadius) continue;
-            if (team == h.Team) { h.Hp = MathF.Min(h.MaxHp, h.Hp + h.MaxHp * .12f * Dt); h.Mana = MathF.Min(h.MaxMana, h.Mana + h.MaxMana * .15f * Dt); }
-            else Damage(_cores[team], h, 400 * Dt, true, quiet: true);
-        }
+        if (!Duel)
+            foreach (var team in new[] { 1, 2 })
+            {
+                if (Vec.Dist(h.Pos, Map.Spawn[team]) > MapDef.FountainRadius) continue;
+                if (team == h.Team) { h.Hp = MathF.Min(h.MaxHp, h.Hp + h.MaxHp * .12f * Dt); h.Mana = MathF.Min(h.MaxMana, h.Mana + h.MaxMana * .15f * Dt); }
+                else Damage(_cores[team], h, 400 * Dt, true, quiet: true);
+            }
+        // A duel round that hasn't started (or has ended) holds everyone where they are.
+        if (Duel && _roundPhase != RoundPhase.Fight) { h.MoveDir = Vec.Zero; return; }
         if (h.ShellT > 0) Heal(h, h, h.Power(3) / h.Def.Abilities[3].Duration * Dt, quiet: true);
 
         // Casting: the hero stands still until the windup ends.
@@ -376,10 +414,12 @@ public sealed partial class Match
         if (_suddenStage >= 3) return false;
         return ProtectedByTowers(s);
     }
+    /// <summary>A lane's inner tower can't be hurt while its outer tower stands. The Core can't be hurt while every
+    /// lane's inner tower stands: breaking through one lane is enough.</summary>
     private bool ProtectedByTowers(Unit s)
     {
-        if (s.Kind == UnitKind.Tower) return s == _towers[s.Team][1] && _towers[s.Team][0].Alive;
-        if (s.Kind == UnitKind.Core) return _towers[s.Team][1].Alive;
+        if (s.Kind == UnitKind.Tower) { var lane = _towers[s.Team][s.Lane]; return s == lane[1] && lane[0].Alive; }
+        if (s.Kind == UnitKind.Core) return _towers[s.Team].All(lane => lane[1].Alive);
         return false;
     }
 
@@ -468,7 +508,7 @@ public sealed partial class Match
                 break;
             case UnitKind.Tower:
                 foreach (var h in Heroes.Where(h => h.Team != t.Team)) { GiveGold(h, 100, h.Pos); GiveXp(h, 60); }
-                Fx(new FxDto { E = "struct", U = t.Id, Tm = t.Team, K = t == _towers[t.Team][0] ? "tower1" : "tower2" });
+                Fx(new FxDto { E = "struct", U = t.Id, Tm = t.Team, K = t == _towers[t.Team][t.Lane][0] ? "tower1" : "tower2", V = t.Lane });
                 break;
             case UnitKind.Core:
                 Winner = 3 - t.Team;
@@ -513,7 +553,7 @@ public sealed partial class Match
         foreach (var h in near) GiveXp(h, each);
     }
 
-    public void GiveXp(Hero h, float amount)
+    public void GiveXp(Hero h, float amount, bool quiet = false)
     {
         if (h.Level >= Catalog.MaxLevel) return;
         h.Exp += amount;
@@ -525,7 +565,7 @@ public sealed partial class Match
             h.MaxHp += gain; h.Hp += gain;
             h.AttackDamage += h.Def.AdPerLevel;
             h.MaxMana += 12; h.Mana += 12;
-            Fx(new FxDto { E = "lvl", U = h.Id, V = h.Level });
+            if (!quiet) Fx(new FxDto { E = "lvl", U = h.Id, V = h.Level });
         }
         if (h.Level >= Catalog.MaxLevel) h.Exp = 0;
     }
@@ -751,7 +791,7 @@ public sealed partial class Match
             var st = u.Status(Time);
             if (u.IsStructure && Protected(u)) st |= St.Invulnerable;
             units.Add(new UnitDto(u.Id, u.Sub, u.Team, R(u.Pos.X), R(u.Pos.Y), (int)MathF.Ceiling(MathF.Max(0, u.Hp)), R(u.MaxHp),
-                R(u.Facing.Angle * 180 / MathF.PI), (int)st, u is Hero h ? h.Level : u.StarCount, R(u.Shield)));
+                R(u.Facing.Angle * 180 / MathF.PI), (int)st, u is Hero h ? h.Level : 0, R(u.Shield), u.StarCount));
         }
         var plants = 0;
         for (var i = 0; i < _plantAt.Length; i++) if (_plantAt[i] <= Time) plants |= 1 << i;
@@ -768,6 +808,7 @@ public sealed partial class Match
             Ob = _warden != null ? 0 : (int)MathF.Ceiling(MathF.Max(1, _objectiveAt - Time)),
             Sd = _suddenStage,
             Fv = _suddenStage > 0 ? FavouredTeam : 0,
+            Rd = _round, Rw = [_roundWins[1], _roundWins[2]], Rp = (int)_roundPhase, Rt = MathF.Round(_roundTimer, 1), Rr = R(_ringR),
         };
     }
 
@@ -798,12 +839,12 @@ public sealed partial class Match
         };
     }
 
-    public MapDto MapDto() => new(Map.Id, Map.Name, Map.Theme, Map.W, Map.H, Map.LaneWidth,
-        Map.Lane.Select(p => new[] { R(p.X), R(p.Y) }).ToList(), Map.Obstacles,
+    public MapDto MapDto() => new(Map.Id, Map.Name, Map.Theme, Map.Type, Map.W, Map.H, Map.LaneWidth,
+        Map.Lanes.Select(l => l.Select(p => new[] { R(p.X), R(p.Y) }).ToList()).ToList(), Map.Obstacles,
         [[0, 0], [R(Map.Spawn[1].X), R(Map.Spawn[1].Y)], [R(Map.Spawn[2].X), R(Map.Spawn[2].Y)]],
         Map.Plants.Select(p => new[] { R(p.X), R(p.Y) }).ToList(),
         Map.Camps.Select(c => new[] { R(c.Pos.X), R(c.Pos.Y) }).ToList(),
-        [R(Map.Objective.X), R(Map.Objective.Y)], MapDef.FountainRadius);
+        Map.Objective is { } o ? [R(o.X), R(o.Y)] : null, MapDef.FountainRadius, [R(Map.Center.X), R(Map.Center.Y)], Map.ArenaRadius);
 }
 
 /// <summary>Obstacles bucketed by their centre into a coarse grid, so collision only looks at what is nearby.

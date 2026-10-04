@@ -68,10 +68,10 @@ public static class Catalog
             Abilities =
             [
                 new() { Id = "spark", Name = "Spark", Slot = 0, Cooldown = .95f, Range = 480, Power = 40, Speed = 900, Target = Target.Enemy, Effects = "homing" },
-                new() { Id = "gravity", Name = "Gravity Well", Slot = 1, Cooldown = 11, Cost = 60, Range = 650, Radius = 170, Power = 12, Duration = 2, Target = Target.Point, Effects = "zone,pull" },
-                new() { Id = "sunfire", Name = "Sunflare", Slot = 2, Cooldown = 6, Cost = 55, Range = 800, Radius = 150, Power = 130, Speed = 760, Windup = .3f, Target = Target.Direction, Effects = "projectile,area" },
+                new() { Id = "gravity", Name = "Gravity Well", Slot = 1, Cooldown = 11, Cost = 60, Range = 650, Radius = 170, Power = 12, Duration = 2, Windup = .25f, Target = Target.Point, Effects = "zone,pull" },
+                new() { Id = "sunfire", Name = "Sunflare", Slot = 2, Cooldown = 6, Cost = 55, Range = 800, Radius = 150, Power = 130, Speed = 760, Windup = .6f, Target = Target.Direction, Effects = "projectile,area" },
                 new() { Id = "starguard", Name = "Guardian Stars", Slot = 3, Cooldown = 14, Cost = 70, Radius = 85, Power = 30, Duration = 6, Target = Target.Self, Effects = "buff,block" },
-                new() { Id = "starfall", Name = "Comet Shower", Slot = 4, Cooldown = 40, Cost = 100, Radius = 600, Power = 190, Windup = .25f, Target = Target.Self, Effects = "area" },
+                new() { Id = "starfall", Name = "Comet Shower", Slot = 4, Cooldown = 40, Cost = 100, Radius = 600, Power = 190, Windup = .45f, Target = Target.Self, Effects = "area" },
             ],
         },
         new()
@@ -82,7 +82,7 @@ public static class Catalog
             [
                 new() { Id = "slash", Name = "Slash", Slot = 0, Cooldown = 1f, Range = 105, Radius = 120, Power = 52, Target = Target.Enemy, Effects = "melee,cleave" },
                 new() { Id = "charge", Name = "Lion's Rush", Slot = 1, Cooldown = 9, Cost = 30, Range = 380, Power = 70, Cc = .8f, Speed = 1400, Target = Target.Enemy, Effects = "dash,stun" },
-                new() { Id = "slam", Name = "Earthsplitter", Slot = 2, Cooldown = 9, Cost = 45, Radius = 210, Power = 110, Cc = 1f, Target = Target.Self, Effects = "area,stun" },
+                new() { Id = "slam", Name = "Earthsplitter", Slot = 2, Cooldown = 9, Cost = 45, Radius = 210, Power = 110, Cc = 1f, Windup = .2f, Target = Target.Self, Effects = "area,stun" },
                 new() { Id = "guard", Name = "Bulwark", Slot = 3, Cooldown = 14, Cost = 40, Radius = 160, Power = 40, Duration = 1.6f, Target = Target.Self, Effects = "buff,block,reflect" },
                 new() { Id = "bladestorm", Name = "Steel Cyclone", Slot = 4, Cooldown = 35, Cost = 80, Radius = 170, Power = 30, Duration = 3, Target = Target.Self, Effects = "buff,area" },
             ],
@@ -95,9 +95,9 @@ public static class Catalog
             [
                 new() { Id = "frostbolt", Name = "Rime Shard", Slot = 0, Cooldown = 1f, Range = 460, Power = 40, Cc = 1.2f, Speed = 850, Target = Target.Enemy, Effects = "homing,slow" },
                 new() { Id = "blink", Name = "Frost Step", Slot = 1, Cooldown = 9, Cost = 40, Range = 320, Radius = 140, Power = 60, Cc = 1.5f, Target = Target.Point, Effects = "blink,slow" },
-                new() { Id = "frostnova", Name = "Glacial Burst", Slot = 2, Cooldown = 10, Cost = 60, Radius = 220, Power = 110, Cc = 1.4f, Target = Target.Self, Effects = "area,root" },
+                new() { Id = "frostnova", Name = "Glacial Burst", Slot = 2, Cooldown = 10, Cost = 60, Radius = 220, Power = 110, Cc = 1.4f, Windup = .2f, Target = Target.Self, Effects = "area,root" },
                 new() { Id = "iceBlock", Name = "Glacier Shell", Slot = 3, Cooldown = 18, Cost = 50, Power = 150, Duration = 2.5f, Target = Target.Self, Toggle = true, Effects = "buff,heal" },
-                new() { Id = "blizzard", Name = "Whiteout", Slot = 4, Cooldown = 40, Cost = 110, Range = 750, Radius = 260, Power = 45, Duration = 4, Cc = .45f, Windup = .4f, Target = Target.Point, Effects = "zone,slow" },
+                new() { Id = "blizzard", Name = "Whiteout", Slot = 4, Cooldown = 40, Cost = 110, Range = 750, Radius = 260, Power = 45, Duration = 4, Cc = .45f, Windup = .7f, Target = Target.Point, Effects = "zone,slow" },
             ],
         },
         new()
@@ -110,7 +110,7 @@ public static class Catalog
                 new() { Id = "shadowstep", Name = "Shade Step", Slot = 1, Cooldown = 8, Cost = 35, Range = 420, Power = 2.2f, Target = Target.Enemy, Effects = "blink" },
                 new() { Id = "knives", Name = "Dagger Burst", Slot = 2, Cooldown = 7, Cost = 45, Range = 380, Power = 55, Speed = 900, Target = Target.Self, Effects = "projectile" },
                 new() { Id = "stealth", Name = "Nightveil", Slot = 3, Cooldown = 16, Cost = 50, Power = 1.8f, Duration = 5, Target = Target.Self, Toggle = true, Effects = "buff,stealth" },
-                new() { Id = "deathmark", Name = "Doom Sigil", Slot = 4, Cooldown = 38, Cost = 90, Range = 600, Radius = 180, Power = 320, Duration = 2, Target = Target.Enemy, Effects = "area" },
+                new() { Id = "deathmark", Name = "Doom Sigil", Slot = 4, Cooldown = 38, Cost = 90, Range = 600, Radius = 180, Power = 320, Duration = 2, Windup = .3f, Target = Target.Enemy, Effects = "area" },
             ],
         },
         new()
@@ -121,7 +121,7 @@ public static class Catalog
             [
                 new() { Id = "arrow", Name = "Swift Arrow", Slot = 0, Cooldown = .85f, Range = 560, Power = 42, Speed = 1150, Target = Target.Enemy, Effects = "projectile,pierce" },
                 new() { Id = "command", Name = "Fenn: Pounce", Slot = 1, Cooldown = 8, Cost = 30, Range = 550, Power = 60, Cc = 1f, Target = Target.Enemy, Effects = "summon,stun" },
-                new() { Id = "volley", Name = "Arrow Fan", Slot = 2, Cooldown = 7, Cost = 50, Range = 600, Power = 55, Speed = 1100, Target = Target.Direction, Effects = "projectile" },
+                new() { Id = "volley", Name = "Arrow Fan", Slot = 2, Cooldown = 7, Cost = 50, Range = 600, Power = 55, Speed = 1100, Windup = .2f, Target = Target.Direction, Effects = "projectile" },
                 new() { Id = "leap", Name = "Hawk Leap", Slot = 3, Cooldown = 12, Cost = 45, Range = 300, Power = 40, Cc = 1f, Target = Target.Direction, Effects = "dash,root" },
                 new() { Id = "wildcall", Name = "Howl of the Pack", Slot = 4, Cooldown = 40, Cost = 90, Power = 30, Duration = 8, Target = Target.Self, Effects = "summon,buff" },
             ],
@@ -133,10 +133,10 @@ public static class Catalog
             Abilities =
             [
                 new() { Id = "seed", Name = "Thorn Seed", Slot = 0, Cooldown = 1f, Range = 470, Power = 36, Speed = 800, Target = Target.Enemy, Effects = "homing,heal" },
-                new() { Id = "naturebolt", Name = "Nature Bolt", Slot = 1, Cooldown = 8, Cost = 50, Range = 750, Power = 95, Cc = 1.2f, Speed = 900, Target = Target.Direction, Effects = "projectile,root,heal" },
-                new() { Id = "grove", Name = "Healing Grove", Slot = 2, Cooldown = 13, Cost = 70, Range = 600, Radius = 200, Power = 25, Duration = 4, Cc = .25f, Target = Target.Point, Effects = "zone,heal,slow" },
+                new() { Id = "naturebolt", Name = "Nature Bolt", Slot = 1, Cooldown = 8, Cost = 50, Range = 750, Power = 95, Cc = 1.2f, Speed = 900, Windup = .3f, Target = Target.Direction, Effects = "projectile,root,heal" },
+                new() { Id = "grove", Name = "Healing Grove", Slot = 2, Cooldown = 13, Cost = 70, Range = 600, Radius = 200, Power = 25, Duration = 4, Cc = .25f, Windup = .3f, Target = Target.Point, Effects = "zone,heal,slow" },
                 new() { Id = "barkskin", Name = "Barkskin", Slot = 3, Cooldown = 12, Cost = 50, Range = 600, Power = 140, Duration = 3, Target = Target.Ally, Effects = "buff,shield" },
-                new() { Id = "awakening", Name = "Verdant Awakening", Slot = 4, Cooldown = 45, Cost = 110, Range = 700, Radius = 300, Power = 220, Cc = 1.5f, Windup = .3f, Target = Target.Point, Effects = "area,heal,root" },
+                new() { Id = "awakening", Name = "Verdant Awakening", Slot = 4, Cooldown = 45, Cost = 110, Range = 700, Radius = 300, Power = 220, Cc = 1.5f, Windup = .55f, Target = Target.Point, Effects = "area,heal,root" },
             ],
         },
     ];

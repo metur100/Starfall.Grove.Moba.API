@@ -53,7 +53,8 @@ SignalR falls back to slower transports and the game will feel laggy.
 | Folder | What's there |
 | --- | --- |
 | `Game/Catalog.cs` | The six heroes, their abilities' numbers, and the upgrade paths. Balance lives here. |
-| `Game/Maps.cs` | The three battlefields: lane, towers, Cores, camps, plants, Star Warden, woods. |
+| `Game/Maps.cs` | The six battlefields (1, 2 and 3 lanes) and three duel arenas. |
+| `Game/Duel.cs` | Duel rounds, the closing ring and duel bots. |
 | `Game/Match.cs` | The rules: ticking, damage, deaths, rewards, levels, upgrades, sudden death, snapshots. |
 | `Game/Abilities.cs` | What every basic attack and ability does. |
 | `Game/Ai.cs` | Minions, monsters, towers, Fenn and bots. |
@@ -63,9 +64,22 @@ SignalR falls back to slower transports and the game will feel laggy.
 
 ## Match rules in short
 
-- Blue starts left, Red right. One lane with Tower 1, Tower 2 and a Core on each side.
-- Tower 2 can't be hurt while Tower 1 stands; the Core can't be hurt (and doesn't fight) while Tower 2 stands.
-- Minion waves every 25 s (3 melee, 2 ranged, a heavy every third wave).
-- Two neutral camps, three healing Moonblooms, and the Star Warden (from 1:30), which blesses the team that defeats it.
-- Sudden death from 6:00 (structures take more damage, the leading team's minions grow stronger) and at 10:00 all
-  structures lose their protection, so every match ends. Bot-only matches take 6–9 minutes.
+**Battle** (1v1 to 3v3) on one of six maps: Starfall Glade, Frostfang Pass and Emberfall Hollow have one lane, Twinbrook
+Vale has two, Three Peaks and Cinder Crown have three.
+
+- Blue starts left, Red right. Every lane has an outer and an inner tower per team, and each team has one Core.
+- A lane's inner tower can't be hurt while its outer tower stands. The Core can't be hurt (and doesn't fight) while
+  every lane's inner tower stands: breaking through one lane is enough.
+- Minion waves every 25 s down every lane (smaller waves on maps with more lanes). Bots spread over the lanes.
+- Two neutral camps, healing Moonblooms, and the Star Warden (from 1:30), which blesses the team that defeats it.
+- Sudden death from 6:00; at 10:00 every structure loses its protection, so every match ends. Bot matches take 7–9 minutes.
+
+**Duel** (1v1 to 3v3) on one of three arenas: heroes only, no minions or structures.
+
+- Everyone starts at level 6 with 500 gold, and with three times their usual health so a round is a real fight.
+- A round ends when one side has nobody standing; the first team to win 3 rounds wins.
+- Between rounds everyone is restored and gets 300 gold (the losers 150 more) for upgrades.
+- From 35 s into a round a ring of starfire closes in and burns anyone outside it.
+
+Spells and slower attacks have a wind-up (Sunflare, Whiteout, Comet Shower, Verdant Awakening, Mira's and Lyra's
+bolts…); clients show it as a cast bar.

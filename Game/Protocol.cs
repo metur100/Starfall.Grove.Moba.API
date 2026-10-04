@@ -2,8 +2,9 @@ namespace Starfall.Grove.Moba.Api.Game;
 
 // What the server sends during a match. Keys are short because a snapshot goes to every player 15 times a second.
 
-/// <summary>A unit as one team sees it. F is facing in degrees, St the <see cref="St"/> flags, Sh the shield left.</summary>
-public sealed record UnitDto(int I, string K, int Tm, int X, int Y, int Hp, int Mh, int F, int St, int Lv, int Sh);
+/// <summary>A unit as one team sees it. F is facing in degrees, St the <see cref="St"/> flags, Lv the hero level,
+/// Sh the shield left and N the Guardian Stars still circling.</summary>
+public sealed record UnitDto(int I, string K, int Tm, int X, int Y, int Hp, int Mh, int F, int St, int Lv, int Sh, int N);
 public sealed record ProjDto(int I, string K, int X, int Y, int Vx, int Vy, int Tm);
 /// <summary>A zone; T is milliseconds left.</summary>
 public sealed record ZoneDto(int I, string K, int X, int Y, int R, int Tm, int T);
@@ -43,6 +44,13 @@ public sealed class SnapshotDto
     public int Sd { get; set; }
     /// <summary>During sudden death, the team with the Star's favour (stronger minions).</summary>
     public int Fv { get; set; }
+    /// <summary>Duels: the round, rounds won by each team, the round phase (0 countdown, 1 fight, 2 over), seconds left
+    /// in the countdown or break, and the radius of the closing ring.</summary>
+    public int Rd { get; set; }
+    public int[] Rw { get; set; } = [0, 0];
+    public int Rp { get; set; }
+    public float Rt { get; set; }
+    public int Rr { get; set; }
 }
 
 /// <summary>The private part of a snapshot: what only this player needs about their own hero.</summary>
@@ -66,8 +74,9 @@ public sealed class MeDto
     public int Ad { get; set; }
 }
 
-public sealed record MapDto(string Id, string Name, string Theme, float W, float H, float LaneWidth,
-    List<int[]> Lane, List<Obstacle> Obstacles, int[][] Spawn, List<int[]> Plants, List<int[]> Camps, int[] Objective, float FountainRadius);
+public sealed record MapDto(string Id, string Name, string Theme, string Type, float W, float H, float LaneWidth,
+    List<List<int[]>> Lanes, List<Obstacle> Obstacles, int[][] Spawn, List<int[]> Plants, List<int[]> Camps, int[]? Objective, float FountainRadius,
+    int[] Center, float ArenaRadius);
 
 public sealed record MatchHeroDto(string PlayerId, string Name, string Hero, int Team, int U, bool Bot);
 

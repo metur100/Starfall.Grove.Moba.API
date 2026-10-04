@@ -27,7 +27,7 @@ public sealed class RoomPlayer
 }
 
 public sealed record RoomPlayerView(string Id, string Name, int Team, bool Ready, bool Bot, bool Connected, string? Hero, bool Locked);
-public sealed record RoomView(string Code, string Phase, int Mode, string Map, string HostId, string You, float Timer, List<RoomPlayerView> Players, int Winner);
+public sealed record RoomView(string Code, string Phase, int Mode, string Map, string Type, string HostId, string You, float Timer, List<RoomPlayerView> Players, int Winner);
 
 /// <summary>An outgoing message: to one connection.</summary>
 public sealed record Outgoing(string ConnectionId, string Method, object?[] Args);
@@ -311,7 +311,7 @@ public sealed class Room
 
     // ───────────────────────────── views
 
-    public RoomView View(RoomPlayer you) => new(Code, PhaseName(Phase), Mode, MapId, HostId, you.Id, MathF.Ceiling(Timer),
+    public RoomView View(RoomPlayer you) => new(Code, PhaseName(Phase), Mode, MapId, Maps.Find(MapId)?.Type ?? "battle", HostId, you.Id, MathF.Ceiling(Timer),
         Players.OrderBy(p => p.Team).Select(p => new RoomPlayerView(p.Id, p.Name, p.Team, p.Ready, p.Bot, p.Connected, p.Hero,
             // Opponents' picks stay hidden until they lock in.
             p.Locked)).ToList(), Winner);

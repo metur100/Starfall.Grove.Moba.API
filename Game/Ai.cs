@@ -197,6 +197,7 @@ public sealed partial class Match
         if (s.StuckT > .75f) { s.StuckT = 0; s.Nudge = new Vec(-h.MoveDir.Y, h.MoveDir.X) * (_rng.Next() < .5f ? 1 : -1); s.NudgeT = .5f; return; }
 
         BotUpgrade(h);
+        if (Duel) { DuelBot(h); return; }
         var hp = h.Hp / h.MaxHp;
         if (hp < .3f) s.Retreat = true;
         if (hp > .9f) s.Retreat = false;
@@ -222,13 +223,13 @@ public sealed partial class Match
         }
 
         // Laning: stand just behind the front of our wave, or behind our outer tower when there is no wave.
-        var path = Map.PathFor(h.Team);
-        Unit? front = Units.Where(u => u.Kind == UnitKind.Minion && u.Team == h.Team && u.Alive).OrderByDescending(u => u.PathIndex).ThenByDescending(u => u.Pos.X * forward.X).FirstOrDefault();
+
+        Unit? front = Units.Where(u => u.Kind == UnitKind.Minion && u.Team == h.Team && u.Alive && u.Lane == h.Lane).OrderByDescending(u => u.PathIndex).ThenByDescending(u => u.Pos.X * forward.X).FirstOrDefault();
         Vec goal;
         if (front != null) goal = front.Pos - forward * (h.Def.Melee ? 40 : 170);
         else
         {
-            var tower = _towers[h.Team].FirstOrDefault(t => t.Alive) ?? _cores[h.Team];
+            var tower = _towers[h.Team][h.Lane].FirstOrDefault(t => t.Alive) ?? _cores[h.Team]!;
             goal = tower.Pos - forward * 120;
         }
         if (UnderEnemyTower(goal, h.Team) && !MinionsTanking(goal, h.Team)) goal -= forward * 380;
@@ -252,12 +253,13 @@ public sealed partial class Match
 
     private void MoveAlongLane(Hero h, Vec goal)
     {
-        int Nearest(Vec p) { var best = 0; var bd = float.MaxValue; for (var i = 0; i < Map.Lane.Count; i++) { var d = Vec.DistSq(Map.Lane[i], p); if (d < bd) { bd = d; best = i; } } return best; }
+        var lane = Map.Lanes[h.Lane];
+        int Nearest(Vec p) { var best = 0; var bd = float.MaxValue; for (var i = 0; i < lane.Count; i++) { var d = Vec.DistSq(lane[i], p); if (d < bd) { bd = d; best = i; } } return best; }
         var ih = Nearest(h.Pos); var ig = Nearest(goal);
         Vec next;
-        if (Vec.Dist(h.Pos, Map.Lane[ih]) > 200 && Math.Abs(ih - ig) > 2) next = Map.Lane[ih];
+        if (Vec.Dist(h.Pos, lane[ih]) > 200 && Math.Abs(ih - ig) > 2) next = lane[ih];
         else if (Math.Abs(ih - ig) <= 2) next = goal;
-        else next = Map.Lane[Math.Clamp(ih + Math.Sign(ig - ih) * 3, 0, Map.Lane.Count - 1)];
+        else next = lane[Math.Clamp(ih + Math.Sign(ig - ih) * 3, 0, lane.Count - 1)];
         h.MoveDir = (next - h.Pos).Norm();
     }
 

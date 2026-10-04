@@ -21,7 +21,7 @@ public sealed class MobaHub(RoomManager rooms, Services.Outbox outbox) : Hub
     }
 
     public static CatalogDto BuildCatalog() => new(Catalog.Heroes, Upgrades.BasicTiers, Upgrades.AbilityTiers, Upgrades.BasicCost, Upgrades.AbilityCost,
-        Upgrades.UltCost, Catalog.UltLevel, Catalog.MaxLevel, Maps.List.Select(m => (object)new { m.Id, m.Name, m.Theme, m.Blurb }).ToArray());
+        Upgrades.UltCost, Catalog.UltLevel, Catalog.MaxLevel, Maps.List.Select(m => (object)new { m.Id, m.Name, m.Theme, m.Type, m.Lanes, m.Blurb }).ToArray());
 
     public CatalogDto GetCatalog() => BuildCatalog();
 

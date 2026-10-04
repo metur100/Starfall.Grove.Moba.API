@@ -20,6 +20,9 @@ public sealed partial class Match
 
     // ───────────────────────────── basic attacks
 
+    /// <summary>How long each hero winds up a basic attack before it lands or flies (a staff raised, a bow drawn).</summary>
+    private static float AttackWindup(string hero) => hero switch { "mira" or "elara" => .3f, "lyra" => .32f, "wren" or "kael" => .2f, _ => .12f };
+
     private void BasicAttack(Hero h, Unit t)
     {
         var m = h.ModsFor(0);
@@ -32,8 +35,16 @@ public sealed partial class Match
         h.Empowered = 0;
         if (h.StealthT > 0) EndStealth(h, keepEmpower: true);
         dmg *= mult;
-        Fx(new FxDto { E = "atk", U = h.Id, K = h.Def.Basic.Id, X = Ri(t.Pos.X), Y = Ri(t.Pos.Y) });
+        var windup = MathF.Min(AttackWindup(h.Def.Id), h.AttackTimer * .5f);
+        Fx(new FxDto { E = "atk", U = h.Id, K = h.Def.Basic.Id, X = Ri(t.Pos.X), Y = Ri(t.Pos.Y), V = Ri(windup * 1000) });
+        // The blow lands (or the shot leaves) when the windup ends, if the hero can still act.
+        Later(windup, () => { if (h.Alive && h.CanAct && t.Alive) Strike(h, t, dmg, crit); });
+    }
+
+    private void Strike(Hero h, Unit t, float dmg, bool crit)
+    {
         var dir = t.Pos - h.Pos;
+        if (crit) Fx(new FxDto { E = "crit", U = h.Id });
 
         switch (h.Def.Id)
         {
@@ -73,6 +84,7 @@ public sealed partial class Match
     public string? Cast(Hero h, int slot, Vec aim)
     {
         if (slot is < 1 or > 4 || h.Dead) return "bad";
+        if (Duel && _roundPhase != RoundPhase.Fight) return "wait";
         var def = h.Def.Abilities[slot];
         var m = h.ModsFor(slot);
         if (def.Toggle)
