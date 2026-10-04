@@ -99,7 +99,7 @@ public sealed class Hero : Unit
     public readonly List<string>[] Picks = [[], [], [], [], []];
     public float RespawnT;
     public int Kills, Deaths, Assists, Streak;
-    public float DamageDealt, Healing;
+    public float DamageDealt, HeroDamage, Healing;
 
     // Input from the player (or the bot driving them).
     public Vec MoveDir;
@@ -134,6 +134,8 @@ public sealed class Projectile
     public int HomingId;
     public int Pierce;
     public bool HitsAllies;
+    /// <summary>Stopped by stones and trunks: heroes' shots are, towers' and minions' (fired over the lane) aren't.</summary>
+    public bool Solid;
     public readonly HashSet<int> Hit = [];
     /// <summary>Shared by every projectile of one cast so a fan of arrows only hits each target once.</summary>
     public HashSet<int>? CastHit;

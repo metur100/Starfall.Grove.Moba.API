@@ -161,7 +161,7 @@ public sealed partial class Match
         {
             if (Vec.Dist(p.Pos, t.Pos) <= p.AttackRange + t.Radius)
             {
-                if (p.Sub == "fenn") p.AttackDamage = 14 + 3 * owner.Level;
+                if (p.Sub == "fenn") p.AttackDamage = 8 + 2 * owner.Level;
                 UnitAttack(p, t);
             }
             else Step(p, t.Pos);
@@ -217,7 +217,8 @@ public sealed partial class Match
             h.TargetId = foe.Id;
             TryBotCast(h, foe, escaping: false);
             var d = Vec.Dist(foe.Pos, h.Pos);
-            if (d > h.AttackRange + foe.Radius - 10) { h.MoveDir = (foe.Pos - h.Pos).Norm(); h.AttackHeld = false; }
+            if (!LineOfSight(h.Pos, foe.Pos)) { h.MoveDir = SteerAround(h.Pos, foe.Pos); h.AttackHeld = false; }
+            else if (d > h.AttackRange + foe.Radius - 10) { h.MoveDir = (foe.Pos - h.Pos).Norm(); h.AttackHeld = false; }
             else { h.MoveDir = Vec.Zero; h.AttackHeld = true; }
             return;
         }

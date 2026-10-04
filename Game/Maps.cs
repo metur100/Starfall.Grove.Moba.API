@@ -154,7 +154,7 @@ public static class Maps
         m.Center = new Vec(m.W / 2, m.H / 2);
         m.ArenaRadius = 560;
         m.Spawn[1] = m.Center + new Vec(-400, 0); m.Spawn[2] = m.Center + new Vec(400, 0);
-        // A wall of trees (or pines, or dead trees) all the way round, and a few stones to duck behind.
+        // A wall of trees (or pines, or dead trees) all the way round.
         for (var a = 0f; a < MathF.PI * 2 - .01f; a += .12f)
         {
             var r = m.ArenaRadius + 70 + rng.Range(0, 30);
@@ -166,8 +166,10 @@ public static class Maps
             var p = m.Center + new Vec(MathF.Cos(a) * r, MathF.Sin(a) * r * .95f);
             if (p.X > 30 && p.X < m.W - 30 && p.Y > 30 && p.Y < m.H - 30) Add(m, new Obstacle(p.X, p.Y, rng.Range(36, 50), wall[rng.Int(wall.Length)], rng.Int(9999)));
         }
-        foreach (var (dx, dy) in new[] { (-170f, -210f), (170f, 210f), (-170f, 210f), (170f, -210f) })
-            Add(m, new Obstacle(m.Center.X + dx, m.Center.Y + dy, 40, cover, rng.Int(9999)));
+        // Stones to duck behind: they block movement, sight, shots and targeted spells. Four big ones round the middle
+        // and two smaller ones on the far edges.
+        foreach (var (dx, dy, r) in new[] { (-200f, -185f, 60f), (200f, 185f, 60f), (-200f, 185f, 60f), (200f, -185f, 60f), (0f, -360f, 50f), (0f, 360f, 50f) })
+            Add(m, new Obstacle(m.Center.X + dx, m.Center.Y + dy * .95f, r, cover, rng.Int(9999)));
         return m;
     }
 

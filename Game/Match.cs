@@ -110,9 +110,9 @@ public sealed partial class Match
             // Duellists start part-way up the levels, with the ultimate ready.
             foreach (var h in Heroes)
             {
-                GiveXp(h, Enumerable.Range(1, DuelStartLevel - 1).Sum(Catalog.XpToNext), quiet: true);
                 // Duellists are much hardier than on the battlefield, so a round is a fight, not one combo.
                 h.MaxHp *= DuelHealth; h.Hp = h.MaxHp;
+                GiveXp(h, Enumerable.Range(1, DuelStartLevel - 1).Sum(Catalog.XpToNext), quiet: true);
             }
             StartRound();
         }
@@ -378,7 +378,7 @@ public sealed partial class Match
     /// </summary>
     public Unit? PickAttackTarget(Unit h, float range, bool anything)
     {
-        bool InRange(Unit u) => Vec.Dist(h.Pos, u.Pos) <= range + u.Radius;
+        bool InRange(Unit u) => Vec.Dist(h.Pos, u.Pos) <= range + u.Radius && Sees(h, u);
         var cur = Get(h.TargetId);
         if (cur != null && Targetable(h, cur) && InRange(cur) && (anything || cur.Kind == UnitKind.Hero)) return cur;
         Unit? best = null; var bestScore = float.MaxValue;
@@ -454,6 +454,7 @@ public sealed partial class Match
         {
             t.Attackers[credit.Id] = Time;
             credit.DamageDealt += amount;
+            if (t.Kind == UnitKind.Hero) credit.HeroDamage += amount;
             if (t.Kind == UnitKind.Hero) credit.AggroT = 2;
         }
         else if (src != null) t.Attackers[-1] = Time;
@@ -561,7 +562,7 @@ public sealed partial class Match
         {
             h.Exp -= Catalog.XpToNext(h.Level);
             h.Level++;
-            var gain = h.Def.HpPerLevel * (h.Picks[0].Contains("hp12") ? 1.12f : 1);
+            var gain = h.Def.HpPerLevel * (h.Picks[0].Contains("hp12") ? 1.12f : 1) * (Duel ? DuelHealth : 1);
             h.MaxHp += gain; h.Hp += gain;
             h.AttackDamage += h.Def.AdPerLevel;
             h.MaxMana += 12; h.Mana += 12;
@@ -657,6 +658,71 @@ public sealed partial class Match
 
     public bool Blocked(Vec p, float r) => _grid.Near(p).Any(o => Vec.Dist(p, new Vec(o.X, o.Y)) < r + o.R * .8f);
 
+    /// <summary>How much of an obstacle stops sight and shots: its trunk or stone, not its outer leaves. Pools block
+    /// walking but not sight.</summary>
+    private static float SightRadius(Obstacle o) => o.K == "pool" ? 0 : o.R * .7f;
+
+    /// <summary>Whether nothing stands between two points: no stone, pillar or tree trunk crosses the straight line.</summary>
+    public bool LineOfSight(Vec a, Vec b)
+    {
+        var d = b - a;
+        var lenSq = d.LenSq;
+        if (lenSq < 1) return true;
+        // Sample the line every 120 units; the 3×3 cells around each sample cover everything that could cross it.
+        var steps = (int)(MathF.Sqrt(lenSq) / 120) + 1;
+        for (var i = 0; i <= steps; i++)
+            foreach (var o in _grid.Near(a + d * (i / (float)steps)))
+            {
+                var r = SightRadius(o);
+                if (r <= 0) continue;
+                var c = new Vec(o.X, o.Y);
+                var k = Math.Clamp(Vec.Dot(c - a, d) / lenSq, 0, 1);
+                if (Vec.DistSq(a + d * k, c) < r * r) return false;
+            }
+        return true;
+    }
+
+    /// <summary>Whether <paramref name="a"/> can see <paramref name="b"/> to aim at it. Structures are tall enough to
+    /// be seen over anything.</summary>
+    public bool Sees(Unit a, Unit b) => b.IsStructure || LineOfSight(a.Pos, b.Pos);
+
+    /// <summary>The obstacle a point is inside (for shots), if any.</summary>
+    private Obstacle? ObstacleAt(Vec p)
+    {
+        foreach (var o in _grid.Near(p))
+        {
+            var r = SightRadius(o);
+            if (r > 0 && Vec.DistSq(p, new Vec(o.X, o.Y)) < r * r) return o;
+        }
+        return null;
+    }
+
+    /// <summary>A direction from <paramref name="from"/> toward <paramref name="to"/> that walks round the first
+    /// obstacle in the way, for bots that lost sight of their target.</summary>
+    public Vec SteerAround(Vec from, Vec to)
+    {
+        var d = to - from;
+        var lenSq = d.LenSq;
+        if (lenSq < 1) return Vec.Zero;
+        var dir = d.Norm();
+        Obstacle? first = null; var firstK = 2f;
+        var steps = (int)(MathF.Sqrt(lenSq) / 120) + 1;
+        for (var i = 0; i <= steps; i++)
+            foreach (var o in _grid.Near(from + d * (i / (float)steps)))
+            {
+                var c = new Vec(o.X, o.Y);
+                var k = Math.Clamp(Vec.Dot(c - from, d) / lenSq, 0, 1);
+                var r = o.R * .8f + 30;
+                if (Vec.DistSq(from + d * k, c) < r * r && k < firstK) { firstK = k; first = o; }
+            }
+        if (first is not { } ob) return dir;
+        var toC = new Vec(ob.X, ob.Y) - from;
+        // Go past on whichever side of the obstacle the line already leans to.
+        var cross = dir.X * toC.Y - dir.Y * toC.X;
+        var side = cross > 0 ? new Vec(dir.Y, -dir.X) : new Vec(-dir.Y, dir.X);
+        return (dir * .35f + side).Norm();
+    }
+
     /// <summary>Knocks a unit away from a point.</summary>
     public void Push(Unit u, Vec from, float distance, float time = .2f)
     {
@@ -673,7 +739,7 @@ public sealed partial class Match
         var p = new Projectile
         {
             Id = _nextId++, Kind = kind, OwnerId = src.Id, Team = src.Team, Pos = src.Pos + new Vec(0, -10), Vel = dir.Norm() * speed,
-            Speed = speed, RangeLeft = range, HomingId = homing, OnHit = onHit, Radius = radius, Pierce = pierce,
+            Speed = speed, RangeLeft = range, HomingId = homing, OnHit = onHit, Radius = radius, Pierce = pierce, Solid = src.Kind == UnitKind.Hero,
         };
         Projectiles.Add(p);
         return p;
@@ -693,6 +759,14 @@ public sealed partial class Match
             var step = p.Vel * Dt;
             p.Pos += step;
             p.RangeLeft -= step.Len;
+            // Stones, pillars and trunks stop every shot (a Sunflare bursts against them).
+            if (p.Solid && ObstacleAt(p.Pos) is not null)
+            {
+                p.Done = true;
+                Fx(new FxDto { E = "burst", K = "thud", X = R(p.Pos.X), Y = R(p.Pos.Y), R = 30 });
+                p.OnExpire?.Invoke(p.Pos);
+                continue;
+            }
             foreach (var u in Units)
             {
                 if (u.Dead || u.Kind == UnitKind.Pet || p.Hit.Contains(u.Id)) continue;
@@ -803,7 +877,7 @@ public sealed partial class Match
             Z = Zones.Select(z => new ZoneDto(z.Id, z.Kind, R(z.Pos.X), R(z.Pos.Y), R(z.Radius), z.Team, R(z.TimeLeft * 1000))).ToList(),
             Fx = fx.Where(f => VisibleTo(f, team)).ToList(),
             Sc = [Score[1], Score[2]],
-            Ps = Heroes.Select(h => new PlayerStatDto(h.PlayerId, h.Id, h.Kills, h.Deaths, h.Assists, h.Level, h.Dead ? (int)MathF.Ceiling(h.RespawnT) : 0)).ToList(),
+            Ps = Heroes.Select(h => new PlayerStatDto(h.PlayerId, h.Id, h.Kills, h.Deaths, h.Assists, h.Level, h.Dead ? (int)MathF.Ceiling(h.RespawnT) : 0, R(h.HeroDamage), R(h.Healing))).ToList(),
             Pa = plants,
             Ob = _warden != null ? 0 : (int)MathF.Ceiling(MathF.Max(1, _objectiveAt - Time)),
             Sd = _suddenStage,

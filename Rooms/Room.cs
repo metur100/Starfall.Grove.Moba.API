@@ -297,7 +297,7 @@ public sealed class Room
         Winner = m.Winner;
         var result = new MatchEndDto(m.Winner, MathF.Round(m.Time, 1), m.Heroes.Select(h => new MatchEndPlayerDto(
             h.PlayerId, h.Name, h.Def.Id, h.Team, h.Kills, h.Deaths, h.Assists, h.Level, (int)h.GoldBank,
-            (int)h.DamageDealt, (int)h.Healing, ById(h.PlayerId)?.Bot ?? true)).ToList());
+            (int)h.DamageDealt, (int)h.Healing, ById(h.PlayerId)?.Bot ?? true, (int)h.HeroDamage)).ToList());
         PendingResult = result;
         foreach (var p in Humans.Where(p => p.ConnectionId != null)) _out.Add(new Outgoing(p.ConnectionId!, "matchEnd", [result]));
         Go(Phase.Ended, 0);

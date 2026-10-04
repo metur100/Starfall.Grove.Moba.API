@@ -4,13 +4,18 @@ public enum RoundPhase { Countdown, Fight, Over }
 
 // Duels: heroes only, in a small ring, no minions, towers or camps. A round ends when one side has nobody standing;
 // the first team to win three rounds wins the duel. Between rounds everyone is restored, gets gold for upgrades, and
-// goes back to their side. A ring of starfire closes in late in a round, so nobody can hide forever.
+// goes back to their side, one level stronger. A ring of starfire closes in late in a round, so nobody can hide behind
+// the stones forever.
 public sealed partial class Match
 {
     public const int DuelStartGold = 500, DuelStartLevel = 6, RoundsToWin = 3;
-    public const float CountdownTime = 3, BreakTime = 4, RingStart = 35, RingShrink = 25, RingMin = 170;
+    /// <summary>The first countdown is longer, so there is time to spend the starting gold.</summary>
+    public const float FirstCountdown = 8, CountdownTime = 4, BreakTime = 7;
+    /// <summary>The ring starts closing this long into a round, takes RingShrink seconds to reach RingMin, and burns
+    /// RingBurn of a hero's health per second outside it (more the longer the round goes on).</summary>
+    public const float RingStart = 60, RingShrink = 45, RingMin = 210, RingBurn = .04f;
     public const int RoundGold = 300, LoserBonus = 150;
-    public const float DuelHealth = 3f;
+    public const float DuelHealth = 2.2f;
 
     private int _round;
     private readonly int[] _roundWins = new int[3];
@@ -21,7 +26,7 @@ public sealed partial class Match
     {
         _round++;
         _roundPhase = RoundPhase.Countdown;
-        _roundTimer = CountdownTime;
+        _roundTimer = _round == 1 ? FirstCountdown : CountdownTime;
         _roundElapsed = 0;
         _ringR = Map.ArenaRadius + 40;
         Projectiles.Clear(); Zones.Clear(); _delayed.Clear();
@@ -29,6 +34,8 @@ public sealed partial class Match
         var slot = new int[3];
         foreach (var h in Heroes)
         {
+            // Every round after the first, everyone grows a level, so the later rounds hit harder.
+            if (_round > 1) LevelUpDuellist(h);
             h.Dead = false; h.Hp = h.MaxHp; h.Mana = h.MaxMana;
             h.Pos = SpawnPoint(h.Team, slot[h.Team]++);
             h.Facing = (Map.Center - h.Pos).Norm();
@@ -62,7 +69,7 @@ public sealed partial class Match
                     if (_ringR >= full - 1 && k > 0) Fx(new FxDto { E = "notice", K = "ring" });
                     _ringR = full - (full - RingMin) * k;
                     foreach (var h in Heroes.Where(h => h.Alive && Vec.Dist(h.Pos, Map.Center) > _ringR))
-                        Damage(null, h, h.MaxHp * .1f * Dt, true, quiet: true);
+                        Damage(null, h, h.MaxHp * RingBurn * (1 + (_roundElapsed - RingStart) / 20) * Dt, true, quiet: true);
                 }
                 bool Standing(int team) => Heroes.Any(h => h.Team == team && h.Alive);
                 bool blue = Standing(1), red = Standing(2);
@@ -83,6 +90,11 @@ public sealed partial class Match
         }
     }
 
+    private void LevelUpDuellist(Hero h)
+    {
+        if (h.Level < Catalog.MaxLevel) GiveXp(h, Catalog.XpToNext(h.Level) - h.Exp, quiet: true);
+    }
+
     /// <summary>A duel bot: go for the nearest enemy, keep a ranged hero at range, stay inside the ring.</summary>
     private void DuelBot(Hero h)
     {
@@ -97,6 +109,8 @@ public sealed partial class Match
         h.TargetId = foe.Id;
         TryBotCast(h, foe, escaping: h.Hp / h.MaxHp < .25f);
         var d = Vec.Dist(foe.Pos, h.Pos);
+        // Lost sight behind a stone: walk round it.
+        if (!LineOfSight(h.Pos, foe.Pos)) { h.MoveDir = SteerAround(h.Pos, foe.Pos); h.AttackHeld = false; return; }
         var reach = h.AttackRange + foe.Radius - 10;
         if (d > reach) { h.MoveDir = (foe.Pos - h.Pos).Norm(); h.AttackHeld = false; }
         else if (!h.Def.Melee && d < reach * .55f && h.AttackTimer > .2f)

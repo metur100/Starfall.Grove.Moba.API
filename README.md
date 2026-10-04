@@ -76,10 +76,19 @@ Vale has two, Three Peaks and Cinder Crown have three.
 
 **Duel** (1v1 to 3v3) on one of three arenas: heroes only, no minions or structures.
 
-- Everyone starts at level 6 with 500 gold, and with three times their usual health so a round is a real fight.
+- Everyone starts at level 6 with 500 gold, and with 2.2× their usual health so a round is a real fight.
 - A round ends when one side has nobody standing; the first team to win 3 rounds wins.
-- Between rounds everyone is restored and gets 300 gold (the losers 150 more) for upgrades.
-- From 35 s into a round a ring of starfire closes in and burns anyone outside it.
+- Between rounds everyone is restored, grows a level and gets 300 gold (the losers 150 more) for upgrades. There is
+  an 8 s countdown before the first round and 7 s between rounds to spend it.
+- From 60 s into a round a ring of starfire closes in over 45 s and burns anyone outside it (4% of health a second,
+  more the longer it goes on). Most rounds are over in 15–40 s, long before that.
+
+**Line of sight** (every map): stones, pillars and tree trunks block sight. Heroes can't attack, or cast a targeted
+spell (Lion's Rush, Shade Step, Fenn's Pounce, Doom Sigil…) at, anyone behind one; heroes' shots stop when they hit
+one, and Comet Shower and a Sunflare's blast don't reach round them. Towers and minions shoot over them.
+
+**Balance** is checked with bot duels: every hero against every other, on every arena (numbers in `Game/Catalog.cs`).
+After the last pass each hero wins 40–60% of its 1v1 duels overall.
 
 Spells and slower attacks have a wind-up (Sunflare, Whiteout, Comet Shower, Verdant Awakening, Mira's and Lyra's
 bolts…); clients show it as a cast bar.

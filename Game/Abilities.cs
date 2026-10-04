@@ -52,15 +52,15 @@ public sealed partial class Match
                 Shoot(h, "spark", dir, h.Def.Basic.Speed, 900, u => Damage(h, u, dmg, false, crit), homing: t.Id);
                 break;
             case "lyra":
-                Shoot(h, "frostbolt", dir, h.Def.Basic.Speed, 900, u => { Damage(h, u, dmg, false, crit); Slow(u, .2f, h.Def.Basic.Cc); }, homing: t.Id);
+                Shoot(h, "frostbolt", dir, h.Def.Basic.Speed, 900, u => { Damage(h, u, dmg, false, crit); Slow(u, .3f, h.Def.Basic.Cc); }, homing: t.Id);
                 break;
             case "elara":
                 Shoot(h, "seed", dir, h.Def.Basic.Speed, 900, u =>
                 {
                     Damage(h, u, dmg, false, crit);
-                    // Each seed sends a sliver of life to the most hurt ally nearby.
+                    // Each seed sends a sliver of life to the most hurt ally nearby (less when that is Elara herself).
                     var ally = AlliesNear(h.Team, h.Pos, 520).Where(a => a.Hp < a.MaxHp).OrderBy(a => a.Hp / a.MaxHp).FirstOrDefault();
-                    if (ally != null) Heal(h, ally, dmg * .35f);
+                    if (ally != null) Heal(h, ally, dmg * (ally == h ? .25f : .35f));
                 }, homing: t.Id);
                 break;
             case "wren":
@@ -102,9 +102,10 @@ public sealed partial class Match
         Unit? target = null;
         if (def.Target == Target.Enemy)
         {
-            target = Units.Where(u => Targetable(h, u) && !u.IsStructure && Vec.Dist(u.Pos, h.Pos) <= range + u.Radius + 30)
-                .OrderBy(u => Vec.Dist(u.Pos, aim) - (u.Kind == UnitKind.Hero ? 120 : 0)).FirstOrDefault();
-            if (target == null) return "target";
+            var inRange = Units.Where(u => Targetable(h, u) && !u.IsStructure && Vec.Dist(u.Pos, h.Pos) <= range + u.Radius + 30).ToList();
+            // A stone or tree between the caster and the target blocks the spell: no charging or marking through it.
+            target = inRange.Where(u => Sees(h, u)).OrderBy(u => Vec.Dist(u.Pos, aim) - (u.Kind == UnitKind.Hero ? 120 : 0)).FirstOrDefault();
+            if (target == null) return inRange.Count > 0 ? "sight" : "target";
         }
         else if (def.Target == Target.Ally)
         {
@@ -146,7 +147,11 @@ public sealed partial class Match
                     z =>
                     {
                         foreach (var u in EnemiesNear(h.Team, z.Pos, z.Radius))
+                        {
                             if (u.DashT <= 0 && u.InvulnT <= 0) u.Pos = u.Pos.Toward(z.Pos, 150 * Dt);
+                            // Wading out against the pull is slow.
+                            Slow(u, .4f, .3f);
+                        }
                     });
                 break;
             case "sunfire":
@@ -154,7 +159,8 @@ public sealed partial class Match
                 void Explode(Vec p)
                 {
                     FxAt("burst", "sunfire", p, radius);
-                    foreach (var u in EnemiesNear(h.Team, p, radius)) Damage(h, u, power, true);
+                    // The blast doesn't reach round a stone: whoever hides behind one is safe.
+                    foreach (var u in EnemiesNear(h.Team, p, radius)) if (LineOfSight(p, u.Pos)) Damage(h, u, power, true);
                 }
                 var pr = Shoot(h, "sunfire", dir, def.Speed, range, null, radius: 24);
                 pr.OnHit = u => Explode(pr.Pos);
@@ -166,7 +172,7 @@ public sealed partial class Match
                 break;
             case "starfall":
             {
-                var targets = EnemiesNear(h.Team, h.Pos, radius).OrderBy(u => u.Kind == UnitKind.Hero ? 0 : 1).ThenBy(u => Vec.Dist(u.Pos, h.Pos)).Take(8).ToList();
+                var targets = EnemiesNear(h.Team, h.Pos, radius).Where(u => Sees(h, u)).OrderBy(u => u.Kind == UnitKind.Hero ? 0 : 1).ThenBy(u => Vec.Dist(u.Pos, h.Pos)).Take(8).ToList();
                 var i = 0;
                 foreach (var u in targets)
                 {
@@ -309,7 +315,7 @@ public sealed partial class Match
             }
             case "leap":
             {
-                var nearest = EnemiesNear(h.Team, h.Pos, 650).OrderBy(u => u.Kind == UnitKind.Hero ? 0 : 1).ThenBy(u => Vec.Dist(u.Pos, h.Pos)).FirstOrDefault();
+                var nearest = EnemiesNear(h.Team, h.Pos, 650).Where(u => Sees(h, u)).OrderBy(u => u.Kind == UnitKind.Hero ? 0 : 1).ThenBy(u => Vec.Dist(u.Pos, h.Pos)).FirstOrDefault();
                 var away = nearest != null ? (h.Pos - nearest.Pos).Norm() : (h.Pos - aim).Norm();
                 if (away == Vec.Zero) away = h.Facing * -1;
                 var to = h.Pos + away * range;
@@ -404,7 +410,7 @@ public sealed partial class Match
         }
         if (h.StarT > 0) return;
         var left = h.StarCount; h.StarCount = 0;
-        var targets = EnemiesNear(h.Team, h.Pos, 600).OrderBy(e => Vec.Dist(e.Pos, h.Pos)).ToList();
+        var targets = EnemiesNear(h.Team, h.Pos, 600).Where(e => Sees(h, e)).OrderBy(e => Vec.Dist(e.Pos, h.Pos)).ToList();
         for (var i = 0; i < left && targets.Count > 0; i++)
         {
             var t = targets[i % targets.Count];

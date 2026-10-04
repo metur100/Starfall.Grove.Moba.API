@@ -25,7 +25,8 @@ public sealed class FxDto
     public int? Tm { get; set; }
 }
 
-public sealed record PlayerStatDto(string Id, int U, int K, int D, int A, int Lv, int Rs);
+/// <summary>A player on the scoreboard. Dm is damage dealt to enemy heroes, Hl healing given to allies.</summary>
+public sealed record PlayerStatDto(string Id, int U, int K, int D, int A, int Lv, int Rs, int Dm, int Hl);
 
 public sealed class SnapshotDto
 {
@@ -83,4 +84,4 @@ public sealed record MatchHeroDto(string PlayerId, string Name, string Hero, int
 public sealed record MatchInitDto(MapDto Map, List<MatchHeroDto> Heroes, string You, int Team, float Tick);
 
 public sealed record MatchEndDto(int Winner, float Duration, List<MatchEndPlayerDto> Players);
-public sealed record MatchEndPlayerDto(string Id, string Name, string Hero, int Team, int K, int D, int A, int Lv, int Gold, int Damage, int Healing, bool Bot);
+public sealed record MatchEndPlayerDto(string Id, string Name, string Hero, int Team, int K, int D, int A, int Lv, int Gold, int Damage, int Healing, bool Bot, int HeroDamage);
