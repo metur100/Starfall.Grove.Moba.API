@@ -93,7 +93,7 @@ public sealed partial class Match
             if (def.Id == "stealth" && h.StealthT > 0) { EndStealth(h, keepEmpower: true); return null; }
         }
         if (h.StunT > 0 || h.ShellT > 0 || h.DashT > 0 || h.CastT > 0) return "busy";
-        if (slot == 4 && h.Level < Catalog.UltLevel) return "locked";
+        if (!h.Learned[slot]) return slot == 4 && h.Level < Catalog.UltLevel ? "locked" : "unlearned";
         if (h.Cooldowns[slot] > 0) return "cooldown";
         var cost = def.Cost * m.Cost;
         if (h.Mana < cost) return "mana";

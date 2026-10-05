@@ -73,6 +73,11 @@ public sealed class MeDto
     public int Vx { get; set; }
     public int Vy { get; set; }
     public int Ad { get; set; }
+    /// <summary>Learned abilities (bit i = slot i) and spell points left to learn more.</summary>
+    public int Ln { get; set; }
+    public int Lp { get; set; }
+    /// <summary>Duels, before a round: the abilities still waiting for this round's free upgrade pick.</summary>
+    public int[] Dq { get; set; } = [];
 }
 
 public sealed record MapDto(string Id, string Name, string Theme, string Type, float W, float H, float LaneWidth,

@@ -97,6 +97,11 @@ public sealed class Hero : Unit
     public readonly float[] Cooldowns = new float[5];
     /// <summary>The upgrade ids bought for each slot, in tier order.</summary>
     public readonly List<string>[] Picks = [[], [], [], [], []];
+    /// <summary>Which abilities the hero has learned (the basic attack always). On the battlefield one per level.</summary>
+    public readonly bool[] Learned = [true, false, false, false, false];
+    public int LearnedCount => Learned.Count(l => l) - 1;
+    /// <summary>Duels: the abilities still waiting for this round's upgrade pick.</summary>
+    public readonly List<int> DuelPending = [];
     public float RespawnT;
     public int Kills, Deaths, Assists, Streak;
     public float DamageDealt, HeroDamage, Healing;
@@ -112,7 +117,17 @@ public sealed class Hero : Unit
     public int FennId;
     public float CritChance => Def.Crit + (Picks[0].Contains("crit10") ? .1f : 0);
 
-    public Mods ModsFor(int slot) => Mods.From(Picks[slot]);
+    public Mods ModsFor(int slot)
+    {
+        var m = Mods.From(Picks[slot]);
+        if (slot == 0) return m;
+        var a = Def.Abilities[slot];
+        // A path that wouldn't change this ability (more reach on a self buff, more duration on a plain blast, a later
+        // Doom Sigil) makes it 15% stronger instead.
+        if (Picks[slot].Contains("reach20") && a.Range <= 0 && a.Radius <= 0) { m.Reach = 1; m.Power *= 1.15f; }
+        if (Picks[slot].Contains("endure35") && ((a.Duration <= 0 && a.Cc <= 0) || a.Id == "deathmark")) { m.Dur = 1; m.Power *= 1.15f; }
+        return m;
+    }
     public float Power(int slot) => Def.Abilities[slot].Power * ModsFor(slot).Power * Catalog.LevelScale(Level) * (BlessT > 0 ? 1.2f : 1);
 
     public override St Status(float now)

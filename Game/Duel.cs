@@ -3,18 +3,19 @@ namespace Starfall.Grove.Moba.Api.Game;
 public enum RoundPhase { Countdown, Fight, Over }
 
 // Duels: heroes only, in a small ring, no minions, towers or camps. A round ends when one side has nobody standing;
-// the first team to win three rounds wins the duel. Between rounds everyone is restored, gets gold for upgrades, and
+// the first team to win three rounds wins the duel. There is no gold: before each round every duellist picks a free
+// upgrade for each of their hero's two duel abilities (see HeroDef.DuelSlots). Between rounds everyone is restored and
 // goes back to their side, one level stronger. A ring of starfire closes in late in a round, so nobody can hide behind
 // the stones forever.
 public sealed partial class Match
 {
-    public const int DuelStartGold = 500, DuelStartLevel = 6, RoundsToWin = 3;
-    /// <summary>The first countdown is longer, so there is time to spend the starting gold.</summary>
-    public const float FirstCountdown = 8, CountdownTime = 4, BreakTime = 7;
+    public const int DuelStartLevel = 6, RoundsToWin = 3;
+    /// <summary>The countdown before a round is when the upgrades are picked (the first one is longer, to read them);
+    /// it ends early once everyone has picked. The break after a round is just long enough to see who won it.</summary>
+    public const float FirstCountdown = 20, CountdownTime = 14, BreakTime = 3, AfterPicks = 3;
     /// <summary>The ring starts closing this long into a round, takes RingShrink seconds to reach RingMin, and burns
     /// RingBurn of a hero's health per second outside it (more the longer the round goes on).</summary>
     public const float RingStart = 60, RingShrink = 45, RingMin = 210, RingBurn = .04f;
-    public const int RoundGold = 300, LoserBonus = 150;
     public const float DuelHealth = 2.2f;
 
     private int _round;
@@ -36,6 +37,8 @@ public sealed partial class Match
         {
             // Every round after the first, everyone grows a level, so the later rounds hit harder.
             if (_round > 1) LevelUpDuellist(h);
+            h.DuelPending.Clear();
+            h.DuelPending.AddRange(h.Def.DuelSlots.Where(s => h.Picks[s].Count < Upgrades.TiersFor(s).Length));
             h.Dead = false; h.Hp = h.MaxHp; h.Mana = h.MaxMana;
             h.Pos = SpawnPoint(h.Team, slot[h.Team]++);
             h.Facing = (Map.Center - h.Pos).Norm();
@@ -56,6 +59,8 @@ public sealed partial class Match
             case RoundPhase.Countdown:
                 _roundTimer -= Dt;
                 if (_roundTimer > 0) return;
+                // Time's up: whoever didn't pick gets the first path.
+                foreach (var h in Heroes) foreach (var slot in h.DuelPending.ToList()) DuelPick(h, slot, 0);
                 _roundPhase = RoundPhase.Fight;
                 Fx(new FxDto { E = "round", K = "fight", V = _round });
                 return;
@@ -78,7 +83,6 @@ public sealed partial class Match
                 if (winner != 0) _roundWins[winner]++;
                 Fx(new FxDto { E = "round", K = winner == 0 ? "draw" : "won", Tm = winner, V = _round });
                 if (winner != 0 && _roundWins[winner] >= RoundsToWin) { Winner = winner; return; }
-                foreach (var h in Heroes) h.GoldBank += RoundGold + (winner != 0 && h.Team != winner ? LoserBonus : 0);
                 _roundPhase = RoundPhase.Over;
                 _roundTimer = BreakTime;
                 return;
@@ -88,6 +92,21 @@ public sealed partial class Match
                 if (_roundTimer <= 0) StartRound();
                 return;
         }
+    }
+
+    /// <summary>A duellist's free upgrade for one of their duel abilities, before a round.</summary>
+    public string? DuelPick(Hero h, int slot, int choice)
+    {
+        if (_roundPhase != RoundPhase.Countdown) return "wait";
+        if (!h.DuelPending.Contains(slot)) return "picked";
+        var tiers = Upgrades.TiersFor(slot);
+        var tier = h.Picks[slot].Count;
+        if (tier >= tiers.Length) return "max";
+        ApplyPick(h, slot, tiers[tier][choice]);
+        h.DuelPending.Remove(slot);
+        // Everyone has picked: start soon.
+        if (Heroes.All(x => x.DuelPending.Count == 0) && _roundTimer > AfterPicks) _roundTimer = AfterPicks;
+        return null;
     }
 
     private void LevelUpDuellist(Hero h)

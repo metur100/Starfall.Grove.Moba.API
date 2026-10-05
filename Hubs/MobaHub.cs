@@ -173,6 +173,17 @@ public sealed class MobaHub(RoomManager rooms, Services.Outbox outbox) : Hub
         }
     }
 
+    /// <summary>Spends a spell point to learn an ability (battles: one per level).</summary>
+    public string? Learn(int slot)
+    {
+        if (rooms.SeatOf(Context.ConnectionId) is not var (room, p)) return "room";
+        lock (room.Lock)
+        {
+            if (room.Phase is not (Phase.Playing or Phase.Starting) || room.Match?.HeroOf(p.Id) is not { } h) return "phase";
+            return room.Match.Learn(h, slot);
+        }
+    }
+
     public override Task OnDisconnectedAsync(Exception? exception)
     {
         if (rooms.SeatOf(Context.ConnectionId) is var (room, p))

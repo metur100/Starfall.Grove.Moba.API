@@ -49,7 +49,6 @@ public static class Maps
     [
         new("glade", "Starfall Glade", "meadow", "battle", 1, "One sunny lane. The Star Warden sleeps in the northern ruins."),
         new("frost", "Frostfang Pass", "summit", "battle", 1, "One winding mountain lane. The Warden waits in the southern hollow."),
-        new("ember", "Emberfall Hollow", "ember", "battle", 1, "One scorched lane around a lava pool. Fights break out everywhere."),
         new("twin", "Twinbrook Vale", "meadow", "battle", 2, "Two lanes around a wooded valley, with the Warden in its heart."),
         new("peaks", "Three Peaks", "summit", "battle", 3, "Three lanes across the snowy heights. Split up, or push together."),
         new("cinder3", "Cinder Crown", "ember", "battle", 3, "Three lanes through the ash fields, the Warden between top and middle."),
@@ -64,8 +63,6 @@ public static class Maps
     {
         "frost" => OneLane("frost", "Frostfang Pass", "summit", amp: 120, waves: 2, objectiveTop: false, seed: 77,
             wall: ["pine", "pine", "rock"], scatter: ["pine", "rock", "crystal", "pine"]),
-        "ember" => OneLane("ember", "Emberfall Hollow", "ember", amp: -140, waves: 1, objectiveTop: true, seed: 913,
-            wall: ["deadtree", "rock", "rock"], scatter: ["rock", "deadtree", "crystal", "stump"]),
         "twin" => TwoLanes(),
         "peaks" => ThreeLanes("peaks", "Three Peaks", "summit", 41, ["pine", "pine", "rock"], ["pine", "rock", "crystal", "pine"]),
         "cinder3" => ThreeLanes("cinder3", "Cinder Crown", "ember", 59, ["deadtree", "rock", "rock"], ["rock", "deadtree", "crystal", "stump"]),

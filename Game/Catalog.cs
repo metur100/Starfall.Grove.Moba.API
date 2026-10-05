@@ -45,81 +45,83 @@ public sealed class HeroDef
     public float AdPerLevel { get; init; }
     public float Crit { get; init; }
     public bool Melee { get; init; }
+    /// <summary>The two abilities (slots) that matter most in a duel: the ones a duellist upgrades before each round.</summary>
+    public int[] DuelSlots { get; init; } = [1, 2];
     public required AbilityDef[] Abilities { get; init; }
     public AbilityDef Basic => Abilities[0];
 }
 
 /// <summary>
 /// The six heroes. Five come from Starfall Grove's valley with their own spells, re-tuned for short team fights; Elara,
-/// the Bloomwarden, is new. Each hero has a basic attack and four abilities: Q, W and E from the start, R (the
-/// ultimate) from level <see cref="Catalog.UltLevel"/>.
+/// the Bloomwarden, is new. Each hero has a basic attack and four abilities. On the battlefield a hero learns one
+/// ability per level (any order); the ultimate can be learned from level <see cref="Catalog.UltLevel"/>.
 /// </summary>
 public static class Catalog
 {
-    public const int UltLevel = 3;
+    public const int UltLevel = 4;
     public const int MaxLevel = 10;
 
     public static readonly HeroDef[] Heroes =
     [
         new()
         {
-            Id = "mira", Name = "Mira", Title = "Astralmancer", Role = "Mage", Difficulty = 3,
+            Id = "mira", DuelSlots = [2, 3], Name = "Mira", Title = "Astralmancer", Role = "Mage", Difficulty = 3,
             Hp = 600, HpPerLevel = 66, Mana = 340, ManaRegen = 11, Armor = 1f, Speed = 300, AdPerLevel = 5, Crit = .15f,
             Abilities =
             [
                 new() { Id = "spark", Name = "Spark", Slot = 0, Cooldown = .9f, Range = 480, Power = 48, Speed = 900, Target = Target.Enemy, Effects = "homing" },
                 new() { Id = "gravity", Name = "Gravity Well", Slot = 1, Cooldown = 11, Cost = 60, Range = 650, Radius = 170, Power = 16, Duration = 2, Windup = .25f, Target = Target.Point, Effects = "zone,pull" },
-                new() { Id = "sunfire", Name = "Sunflare", Slot = 2, Cooldown = 5, Cost = 50, Range = 800, Radius = 150, Power = 160, Speed = 760, Windup = .6f, Target = Target.Direction, Effects = "projectile,area" },
+                new() { Id = "sunfire", Name = "Sunflare", Slot = 2, Cooldown = 5, Cost = 50, Range = 800, Radius = 150, Power = 140, Speed = 760, Windup = .6f, Target = Target.Direction, Effects = "projectile,area" },
                 new() { Id = "starguard", Name = "Guardian Stars", Slot = 3, Cooldown = 14, Cost = 60, Radius = 85, Power = 40, Duration = 6, Target = Target.Self, Effects = "buff,block" },
                 new() { Id = "starfall", Name = "Comet Shower", Slot = 4, Cooldown = 40, Cost = 100, Radius = 600, Power = 230, Windup = .45f, Target = Target.Self, Effects = "area" },
             ],
         },
         new()
         {
-            Id = "kael", Name = "Kael", Title = "Knight", Role = "Tank", Difficulty = 2,
+            Id = "kael", DuelSlots = [1, 2], Name = "Kael", Title = "Knight", Role = "Tank", Difficulty = 2,
             Hp = 700, HpPerLevel = 80, Resource = "Stamina", Mana = 200, ManaRegen = 10, Armor = .8f, Speed = 305, AdPerLevel = 3.5f, Melee = true,
             Abilities =
             [
                 new() { Id = "slash", Name = "Slash", Slot = 0, Cooldown = 1f, Range = 105, Radius = 120, Power = 44, Target = Target.Enemy, Effects = "melee,cleave" },
                 new() { Id = "charge", Name = "Lion's Rush", Slot = 1, Cooldown = 8, Cost = 35, Range = 450, Power = 60, Cc = .5f, Speed = 1400, Target = Target.Enemy, Effects = "dash,stun" },
-                new() { Id = "slam", Name = "Earthsplitter", Slot = 2, Cooldown = 10, Cost = 45, Radius = 210, Power = 90, Cc = .7f, Windup = .2f, Target = Target.Self, Effects = "area,stun" },
+                new() { Id = "slam", Name = "Earthsplitter", Slot = 2, Cooldown = 10, Cost = 45, Radius = 210, Power = 100, Cc = .7f, Windup = .2f, Target = Target.Self, Effects = "area,stun" },
                 new() { Id = "guard", Name = "Bulwark", Slot = 3, Cooldown = 14, Cost = 40, Radius = 160, Power = 40, Duration = 1.6f, Target = Target.Self, Effects = "buff,block,reflect" },
                 new() { Id = "bladestorm", Name = "Steel Cyclone", Slot = 4, Cooldown = 35, Cost = 80, Radius = 170, Power = 22, Duration = 3, Target = Target.Self, Effects = "buff,area" },
             ],
         },
         new()
         {
-            Id = "lyra", Name = "Lyra", Title = "Frostweaver", Role = "Controller", Difficulty = 3,
+            Id = "lyra", DuelSlots = [2, 1], Name = "Lyra", Title = "Frostweaver", Role = "Controller", Difficulty = 3,
             Hp = 660, HpPerLevel = 72, Mana = 340, ManaRegen = 10, Armor = .8f, Speed = 295, AdPerLevel = 5,
             Abilities =
             [
                 new() { Id = "frostbolt", Name = "Rime Shard", Slot = 0, Cooldown = 1f, Range = 470, Power = 56, Cc = 1.2f, Speed = 850, Target = Target.Enemy, Effects = "homing,slow" },
                 new() { Id = "blink", Name = "Frost Step", Slot = 1, Cooldown = 9, Cost = 40, Range = 320, Radius = 140, Power = 80, Cc = 1.5f, Target = Target.Point, Effects = "blink,slow" },
-                new() { Id = "frostnova", Name = "Glacial Burst", Slot = 2, Cooldown = 8, Cost = 55, Radius = 240, Power = 130, Cc = 1.4f, Windup = .2f, Target = Target.Self, Effects = "area,root" },
+                new() { Id = "frostnova", Name = "Glacial Burst", Slot = 2, Cooldown = 8, Cost = 55, Radius = 240, Power = 145, Cc = 1.4f, Windup = .2f, Target = Target.Self, Effects = "area,root" },
                 new() { Id = "iceBlock", Name = "Glacier Shell", Slot = 3, Cooldown = 18, Cost = 50, Power = 260, Duration = 2.5f, Target = Target.Self, Toggle = true, Effects = "buff,heal" },
                 new() { Id = "blizzard", Name = "Whiteout", Slot = 4, Cooldown = 40, Cost = 110, Range = 750, Radius = 260, Power = 65, Duration = 4, Cc = .45f, Windup = .7f, Target = Target.Point, Effects = "zone,slow" },
             ],
         },
         new()
         {
-            Id = "riven", Name = "Riven", Title = "Assassin", Role = "Assassin", Difficulty = 4,
+            Id = "riven", DuelSlots = [1, 2], Name = "Riven", Title = "Assassin", Role = "Assassin", Difficulty = 4,
             Hp = 640, HpPerLevel = 70, Resource = "Energy", Mana = 200, ManaRegen = 14, Armor = .75f, Speed = 320, AdPerLevel = 4.5f, Crit = .2f, Melee = true,
             Abilities =
             [
                 new() { Id = "stab", Name = "Twin Daggers", Slot = 0, Cooldown = .7f, Range = 95, Power = 38, Target = Target.Enemy, Effects = "melee,crit" },
                 new() { Id = "shadowstep", Name = "Shade Step", Slot = 1, Cooldown = 7, Cost = 35, Range = 450, Power = 2.2f, Target = Target.Enemy, Effects = "blink" },
-                new() { Id = "knives", Name = "Dagger Burst", Slot = 2, Cooldown = 7, Cost = 45, Range = 380, Power = 55, Speed = 900, Target = Target.Self, Effects = "projectile" },
+                new() { Id = "knives", Name = "Dagger Burst", Slot = 2, Cooldown = 7, Cost = 45, Range = 380, Power = 62, Speed = 900, Target = Target.Self, Effects = "projectile" },
                 new() { Id = "stealth", Name = "Nightveil", Slot = 3, Cooldown = 16, Cost = 50, Power = 1.8f, Duration = 5, Target = Target.Self, Toggle = true, Effects = "buff,stealth" },
                 new() { Id = "deathmark", Name = "Doom Sigil", Slot = 4, Cooldown = 38, Cost = 90, Range = 600, Radius = 180, Power = 320, Duration = 2, Windup = .3f, Target = Target.Enemy, Effects = "area" },
             ],
         },
         new()
         {
-            Id = "wren", Name = "Wren", Title = "Ranger", Role = "Marksman", Difficulty = 2,
+            Id = "wren", DuelSlots = [0, 2], Name = "Wren", Title = "Ranger", Role = "Marksman", Difficulty = 2,
             Hp = 540, HpPerLevel = 60, Resource = "Focus", Mana = 220, ManaRegen = 10, Armor = .92f, Speed = 295, AdPerLevel = 4, Crit = .1f,
             Abilities =
             [
-                new() { Id = "arrow", Name = "Swift Arrow", Slot = 0, Cooldown = .85f, Range = 500, Power = 34, Speed = 1150, Target = Target.Enemy, Effects = "projectile,pierce" },
+                new() { Id = "arrow", Name = "Swift Arrow", Slot = 0, Cooldown = .85f, Range = 500, Power = 30, Speed = 1150, Target = Target.Enemy, Effects = "projectile,pierce" },
                 new() { Id = "command", Name = "Fenn: Pounce", Slot = 1, Cooldown = 10, Cost = 30, Range = 550, Power = 55, Cc = .7f, Target = Target.Enemy, Effects = "summon,stun" },
                 new() { Id = "volley", Name = "Arrow Fan", Slot = 2, Cooldown = 7, Cost = 50, Range = 600, Power = 55, Speed = 1100, Windup = .2f, Target = Target.Direction, Effects = "projectile" },
                 new() { Id = "leap", Name = "Hawk Leap", Slot = 3, Cooldown = 14, Cost = 45, Range = 300, Power = 40, Cc = .8f, Target = Target.Direction, Effects = "dash,root" },
@@ -128,7 +130,7 @@ public static class Catalog
         },
         new()
         {
-            Id = "elara", Name = "Elara", Title = "Bloomwarden", Role = "Support", Difficulty = 2,
+            Id = "elara", DuelSlots = [1, 3], Name = "Elara", Title = "Bloomwarden", Role = "Support", Difficulty = 2,
             Hp = 580, HpPerLevel = 62, Mana = 340, ManaRegen = 9.5f, Armor = .9f, Speed = 300, AdPerLevel = 4.5f,
             Abilities =
             [

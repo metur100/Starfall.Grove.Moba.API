@@ -35,6 +35,8 @@ public sealed partial class Match
     /// <summary>[team][lane][0] the lane's outer tower, [1] its inner one. Empty in a duel.</summary>
     private readonly Unit[][][] _towers = [[], [], []];
     private readonly Unit?[] _cores = new Unit?[3];
+    /// <summary>Every tower and Core, for walking round them.</summary>
+    private readonly List<Unit> _structures = [];
     public bool Duel => Map.Duel;
     private readonly float[] _plantAt;
     private readonly float[] _campAt;
@@ -81,6 +83,7 @@ public sealed partial class Match
             });
         }
 
+        _structures.AddRange(_spawnQueue.Where(u => u.IsStructure));
         var slot = new int[3];
         foreach (var p in players)
         {
@@ -90,7 +93,7 @@ public sealed partial class Match
                 Kind = UnitKind.Hero, Sub = def.Id, Def = def, PlayerId = p.Id, Name = p.Name, Team = p.Team,
                 Radius = 24, Armor = def.Armor, Speed = def.Speed, BaseHp = def.Hp,
                 AttackRange = def.Basic.Range, AttackDamage = def.Basic.Power, AttackCd = def.Basic.Cooldown,
-                MaxMana = def.Mana, Mana = def.Mana, ManaRegen = def.ManaRegen, GoldBank = map.Duel ? DuelStartGold : 150,
+                MaxMana = def.Mana, Mana = def.Mana, ManaRegen = def.ManaRegen, GoldBank = map.Duel ? 0 : 150,
             };
             h.MaxHp = h.Hp = def.Hp;
             h.Lane = map.Duel ? 0 : slot[p.Team] % map.Lanes.Count;
@@ -113,6 +116,7 @@ public sealed partial class Match
                 // Duellists are much hardier than on the battlefield, so a round is a fight, not one combo.
                 h.MaxHp *= DuelHealth; h.Hp = h.MaxHp;
                 GiveXp(h, Enumerable.Range(1, DuelStartLevel - 1).Sum(Catalog.XpToNext), quiet: true);
+                Array.Fill(h.Learned, true);
             }
             StartRound();
         }
@@ -542,6 +546,8 @@ public sealed partial class Match
 
     private void GiveGold(Hero h, float amount, Vec at)
     {
+        // Duels have no gold: upgrades are picked before each round instead.
+        if (Duel) return;
         h.GoldBank += amount;
         Fx(new FxDto { E = "gold", U = h.Id, V = R(amount), X = R(at.X), Y = R(at.Y) });
     }
@@ -576,14 +582,20 @@ public sealed partial class Match
     public string? BuyUpgrade(Hero h, int slot, int choice)
     {
         if (slot is < 0 or > 4 || choice is < 0 or > 1) return "bad";
+        if (Duel) return DuelPick(h, slot, choice);
         var tier = h.Picks[slot].Count;
         var tiers = Upgrades.TiersFor(slot);
         if (tier >= tiers.Length) return "max";
-        if (slot == 4 && h.Level < Catalog.UltLevel) return "locked";
+        if (!h.Learned[slot]) return slot == 4 && h.Level < Catalog.UltLevel ? "locked" : "unlearned";
         var cost = Upgrades.Cost(slot, tier);
         if (h.GoldBank < cost) return "gold";
         h.GoldBank -= cost;
-        var pick = tiers[tier][choice];
+        ApplyPick(h, slot, tiers[tier][choice]);
+        return null;
+    }
+
+    private void ApplyPick(Hero h, int slot, UpgradeOption pick)
+    {
         h.Picks[slot].Add(pick.Id);
         switch (pick.Id)
         {
@@ -591,6 +603,20 @@ public sealed partial class Match
             case "move8": h.Speed *= 1.08f; break;
         }
         Fx(new FxDto { E = "upgrade", U = h.Id, V = slot, K = pick.Id });
+    }
+
+    /// <summary>Spell points: one per level up to the ultimate's level, each learns one ability.</summary>
+    public int LearnPoints(Hero h) => Duel ? 0 : Math.Min(h.Level, Catalog.UltLevel) - h.LearnedCount;
+
+    /// <summary>Learns an ability with a spell point. The ultimate needs level <see cref="Catalog.UltLevel"/>.</summary>
+    public string? Learn(Hero h, int slot)
+    {
+        if (slot is < 1 or > 4) return "bad";
+        if (h.Learned[slot]) return "learned";
+        if (slot == 4 && h.Level < Catalog.UltLevel) return "locked";
+        if (LearnPoints(h) <= 0) return "points";
+        h.Learned[slot] = true;
+        Fx(new FxDto { E = "learn", U = h.Id, V = slot });
         return null;
     }
 
@@ -910,6 +936,8 @@ public sealed partial class Match
             U = h.Id, G = (int)h.GoldBank, Lv = h.Level, Xp = R(h.Exp), Xn = Catalog.XpToNext(h.Level), Mp = R(h.Mana), Mm = R(h.MaxMana),
             Cd = cd, Cm = cm, Mc = mc, Up = h.Picks.Select(p => p.ToList()).ToArray(), Rs = MathF.Round(h.RespawnT, 1), Sp = R(h.MoveSpeed),
             Vx = R(v.X), Vy = R(v.Y), Ad = R(h.AttackDamage * h.ModsFor(0).Power),
+            Ln = h.Learned.Select((l, i) => l ? 1 << i : 0).Sum(), Lp = LearnPoints(h),
+            Dq = Duel && _roundPhase == RoundPhase.Countdown ? h.DuelPending.ToArray() : [],
         };
     }
 

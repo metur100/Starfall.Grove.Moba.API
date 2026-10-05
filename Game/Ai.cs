@@ -55,8 +55,23 @@ public sealed partial class Match
     {
         var d = goal - u.Pos;
         if (d.LenSq < 4) return;
-        u.Facing = d.Norm();
-        u.Pos = u.Pos.Toward(goal, u.MoveSpeed * Dt);
+        var dir = d.Norm();
+        // Walk round a standing tower or Core in the way (unless it is what we are walking to), then back to the lane.
+        foreach (var s in _structures)
+        {
+            if (s.Dead || Vec.Dist(goal, s.Pos) < s.Radius + u.Radius + 40) continue;
+            var toS = s.Pos - u.Pos;
+            var along = Vec.Dot(toS, dir);
+            var clear = s.Radius + u.Radius + 16;
+            if (along <= 0 || along > clear + 90 || along > d.Len + s.Radius) continue;
+            var off = toS - dir * along;
+            if (off.LenSq >= clear * clear) continue;
+            var away = off.LenSq < 1 ? new Vec(-dir.Y, dir.X) : off.Norm() * -1;
+            dir = (dir + away * 1.3f).Norm();
+            break;
+        }
+        u.Facing = dir;
+        u.Pos += dir * MathF.Min(u.MoveSpeed * Dt, d.Len);
     }
 
     /// <summary>A plain attack by a minion, monster, tower or pet: melee hits at once, ranged attackers shoot.</summary>
@@ -270,7 +285,7 @@ public sealed partial class Match
         {
             if (onlySlot != 0 && slot != onlySlot) continue;
             var def = h.Def.Abilities[slot];
-            if (h.Cooldowns[slot] > 0 || h.Mana < def.Cost * h.ModsFor(slot).Cost || (slot == 4 && h.Level < Catalog.UltLevel)) continue;
+            if (!h.Learned[slot] || h.Cooldowns[slot] > 0 || h.Mana < def.Cost * h.ModsFor(slot).Cost) continue;
             var target = foe?.Pos ?? at ?? h.Pos + h.Facing * 200;
             var d = Vec.Dist(target, h.Pos);
             var range = def.Range * h.ModsFor(slot).Reach;
@@ -299,10 +314,18 @@ public sealed partial class Match
 
     private void BotUpgrade(Hero h)
     {
+        if (Duel)
+        {
+            foreach (var slot in h.DuelPending.ToList()) DuelPick(h, slot, (h.Id + h.Picks[slot].Count) % 2);
+            return;
+        }
+        // Learn the ultimate as soon as it can be, the other abilities in a fixed order.
+        while (LearnPoints(h) > 0 && new[] { 4, 2, 1, 3 }.FirstOrDefault(s => !h.Learned[s] && (s != 4 || h.Level >= Catalog.UltLevel)) is var learn and > 0)
+            Learn(h, learn);
         foreach (var slot in new[] { 4, 1, 2, 0, 3 })
         {
             var tier = h.Picks[slot].Count;
-            if (tier >= 3 || (slot == 4 && h.Level < Catalog.UltLevel)) continue;
+            if (tier >= 3 || !h.Learned[slot]) continue;
             if (h.GoldBank < Upgrades.Cost(slot, tier)) continue;
             BuyUpgrade(h, slot, (h.Id + tier) % 2);
             return;
