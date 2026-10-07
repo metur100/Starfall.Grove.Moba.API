@@ -23,6 +23,8 @@ public sealed class FxDto
     public int? R { get; set; }
     public string? K { get; set; }
     public int? Tm { get; set; }
+    public int? N { get; set; }
+    public string? S { get; set; }
 }
 
 /// <summary>A player on the scoreboard. Dm is damage dealt to enemy heroes, Hl healing given to allies.</summary>
@@ -52,6 +54,8 @@ public sealed class SnapshotDto
     public int Rp { get; set; }
     public float Rt { get; set; }
     public int Rr { get; set; }
+    /// <summary>Duels: 1 while the Starshard waits in the middle of the ring.</summary>
+    public int Ss { get; set; }
 }
 
 /// <summary>The private part of a snapshot: what only this player needs about their own hero.</summary>
@@ -78,15 +82,20 @@ public sealed class MeDto
     public int Lp { get; set; }
     /// <summary>Duels, before a round: the abilities still waiting for this round's free upgrade pick.</summary>
     public int[] Dq { get; set; } = [];
+    /// <summary>The charm: its id, cooldown left and full cooldown. Rc: seconds left of a recall home.</summary>
+    public string Ch { get; set; } = "flash";
+    public float Chc { get; set; }
+    public float Chm { get; set; }
+    public float Rc { get; set; }
 }
 
 public sealed record MapDto(string Id, string Name, string Theme, string Type, float W, float H, float LaneWidth,
     List<List<int[]>> Lanes, List<Obstacle> Obstacles, int[][] Spawn, List<int[]> Plants, List<int[]> Camps, int[]? Objective, float FountainRadius,
     int[] Center, float ArenaRadius);
 
-public sealed record MatchHeroDto(string PlayerId, string Name, string Hero, int Team, int U, bool Bot);
+public sealed record MatchHeroDto(string PlayerId, string Name, string Hero, int Team, int U, bool Bot, string? Skin = null, int Level = 0);
 
-public sealed record MatchInitDto(MapDto Map, List<MatchHeroDto> Heroes, string You, int Team, float Tick);
+public sealed record MatchInitDto(MapDto Map, List<MatchHeroDto> Heroes, string You, int Team, float Tick, bool Matchmade = false);
 
 public sealed record MatchEndDto(int Winner, float Duration, List<MatchEndPlayerDto> Players);
 public sealed record MatchEndPlayerDto(string Id, string Name, string Hero, int Team, int K, int D, int A, int Lv, int Gold, int Damage, int Healing, bool Bot, int HeroDamage);

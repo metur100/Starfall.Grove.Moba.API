@@ -1,7 +1,7 @@
 namespace Starfall.Grove.Moba.Api.Game;
 
 /// <summary>A player taking part in a match, as the room hands them over.</summary>
-public sealed record MatchPlayer(string Id, string Name, string Hero, int Team, bool Bot);
+public sealed record MatchPlayer(string Id, string Name, string Hero, int Team, bool Bot, string Charm = "flash");
 
 /// <summary>
 /// The authoritative simulation of one match. The room calls <see cref="Tick"/> 30 times a second and sends
@@ -94,6 +94,7 @@ public sealed partial class Match
                 Radius = 24, Armor = def.Armor, Speed = def.Speed, BaseHp = def.Hp,
                 AttackRange = def.Basic.Range, AttackDamage = def.Basic.Power, AttackCd = def.Basic.Cooldown,
                 MaxMana = def.Mana, Mana = def.Mana, ManaRegen = def.ManaRegen, GoldBank = map.Duel ? 0 : 150,
+                Charm = Economy.CharmById.ContainsKey(p.Charm) ? p.Charm : "flash",
             };
             h.MaxHp = h.Hp = def.Hp;
             h.Lane = map.Duel ? 0 : slot[p.Team] % map.Lanes.Count;
@@ -319,6 +320,7 @@ public sealed partial class Match
         h.Mana = MathF.Min(h.MaxMana, h.Mana + h.ManaRegen * Dt);
         if (Time - LastHurt(h) > 6) h.Hp = MathF.Min(h.MaxHp, h.Hp + h.MaxHp * .006f * Dt * 10);
         for (var i = 0; i < 5; i++) if (h.Cooldowns[i] > 0) h.Cooldowns[i] = MathF.Max(0, h.Cooldowns[i] - Dt);
+        if (h.CharmCd > 0) h.CharmCd = MathF.Max(0, h.CharmCd - Dt);
         if (h.AttackTimer > 0) h.AttackTimer -= Dt;
         if (h.AggroT > 0) h.AggroT -= Dt;
 
@@ -333,6 +335,8 @@ public sealed partial class Match
         // A duel round that hasn't started (or has ended) holds everyone where they are.
         if (Duel && _roundPhase != RoundPhase.Fight) { h.MoveDir = Vec.Zero; return; }
         if (h.ShellT > 0) Heal(h, h, h.Power(3) / h.Def.Abilities[3].Duration * Dt, quiet: true);
+        // Recalling: the hero stands still (and doesn't attack) until it is done or broken.
+        if (UpdateRecall(h)) return;
 
         // Casting: the hero stands still until the windup ends.
         if (h.CastT > 0)
@@ -369,7 +373,7 @@ public sealed partial class Match
         h.Dead = false;
         h.Hp = h.MaxHp; h.Mana = h.MaxMana;
         h.Pos = SpawnPoint(h.Team, Heroes.Where(x => x.Team == h.Team).ToList().IndexOf(h));
-        h.StunT = h.RootT = h.SlowT = h.MarkT = h.DashT = h.PushT = 0;
+        h.StunT = h.RootT = h.SlowT = h.MarkT = h.DashT = h.PushT = h.RecallT = h.HasteT = 0;
         h.Attackers.Clear();
         h.InvulnT = 1.5f;
         if (Get(h.FennId) is { } fenn) { fenn.Dead = false; fenn.Pos = h.Pos + new Vec(-30, 20); }
@@ -453,6 +457,7 @@ public sealed partial class Match
             if (amount <= 0) { if (!quiet) Fx(new FxDto { E = "dmg", U = t.Id, V = 0, K = "shield" }); return; }
         }
         t.Hp -= amount;
+        if (t is Hero recaller && recaller.RecallT > 0 && src != null) CancelRecall(recaller);
         var credit = CreditOf(src);
         if (credit != null)
         {
@@ -464,7 +469,8 @@ public sealed partial class Match
         else if (src != null) t.Attackers[-1] = Time;
         if (t.StealthT > 0) EndStealth((Hero)t);
         if (t.Kind == UnitKind.Monster && src != null && src.Kind != UnitKind.Monster) { t.TargetId = (credit ?? src).Id; t.AggroT = 6; }
-        if (!quiet) Fx(new FxDto { E = "dmg", U = t.Id, V = R(amount), K = crit ? "crit" : ability ? "spell" : null });
+        // Hits on heroes say who dealt them (for the death recap and hit sparks).
+        if (!quiet) Fx(new FxDto { E = "dmg", U = t.Id, V = R(amount), K = crit ? "crit" : ability ? "spell" : null, U2 = t.Kind == UnitKind.Hero ? (credit ?? src)?.Id : null });
         if (t.Hp <= 0) Kill(t, src);
     }
 
@@ -525,9 +531,12 @@ public sealed partial class Match
     private void KillHero(Hero v, Unit? killer, Hero? credit)
     {
         v.Deaths++;
+        // A hero on a streak is worth more: whoever ends it gets a bounty.
+        var streak = v.Streak;
+        var bounty = streak >= 3 ? Math.Min(150, 50 * (streak - 2)) : 0;
         v.Streak = 0;
         v.RespawnT = MathF.Min(22, 4 + 1.6f * v.Level + Time / 60);
-        v.StealthT = v.ShellT = v.GuardT = v.SpinT = v.ShieldT = v.BlessT = v.CastT = v.StarCount = 0;
+        v.StealthT = v.ShellT = v.GuardT = v.SpinT = v.ShieldT = v.BlessT = v.RecallT = v.HasteT = v.CastT = v.StarCount = 0;
         v.Empowered = 0; v.OnCast = null;
         if (Get(v.FennId) is { } fenn) fenn.Dead = true;
         var killerTeam = 3 - v.Team;
@@ -537,11 +546,16 @@ public sealed partial class Match
         if (credit != null)
         {
             credit.Kills++; credit.Streak++;
-            GiveGold(credit, 150 + 10 * v.Level + Math.Min(3, credit.Streak - 1) * 25, v.Pos);
+            credit.Multi = Time - credit.LastKillT < 10 ? credit.Multi + 1 : 1;
+            credit.LastKillT = Time;
+            GiveGold(credit, 150 + 10 * v.Level + Math.Min(3, credit.Streak - 1) * 25 + bounty, v.Pos);
         }
         foreach (var a in assisters) { a.Assists++; GiveGold(a, 60, v.Pos); }
         ShareXp(v.Pos, killerTeam, 80 + 25 * v.Level, 1100);
-        Fx(new FxDto { E = "kill", U = credit?.Id ?? killer?.Id ?? 0, U2 = v.Id, Tm = killerTeam, K = killer?.Sub });
+        // V: the killer's double/triple… kill count, N: their streak, S: "shutdown" when a streak was ended.
+        Fx(new FxDto { E = "kill", U = credit?.Id ?? killer?.Id ?? 0, U2 = v.Id, Tm = killerTeam, K = killer?.Sub, V = credit?.Multi, N = credit?.Streak, S = bounty > 0 ? "shutdown" : null });
+        // Ace: the whole team is down at once.
+        if (!Duel && Heroes.Count(h => h.Team == v.Team) > 1 && Heroes.Where(h => h.Team == v.Team).All(h => h.Dead)) Fx(new FxDto { E = "notice", K = "ace", Tm = killerTeam });
     }
 
     private void GiveGold(Hero h, float amount, Vec at)
@@ -871,6 +885,7 @@ public sealed partial class Match
             if (u.ShieldT > 0) u.ShieldT -= Dt; else u.Shield = 0;
             if (u.BlessT > 0) u.BlessT -= Dt;
             if (u.FrenzyT > 0) u.FrenzyT -= Dt;
+            if (u.HasteT > 0) u.HasteT -= Dt; else u.HasteAmt = 0;
             if (u.MarkT > 0) u.MarkT -= Dt;
             if (u.ShellT > 0) { u.ShellT -= Dt; if (u.ShellT <= 0 && u is Hero lyra) EndShell(lyra); }
             if (u.StealthT > 0) { u.StealthT -= Dt; if (u.StealthT <= 0 && u is Hero riven) EndStealth(riven); }
@@ -909,6 +924,7 @@ public sealed partial class Match
             Sd = _suddenStage,
             Fv = _suddenStage > 0 ? FavouredTeam : 0,
             Rd = _round, Rw = [_roundWins[1], _roundWins[2]], Rp = (int)_roundPhase, Rt = MathF.Round(_roundTimer, 1), Rr = R(_ringR),
+            Ss = _shardUp ? 1 : 0,
         };
     }
 
@@ -938,6 +954,7 @@ public sealed partial class Match
             Vx = R(v.X), Vy = R(v.Y), Ad = R(h.AttackDamage * h.ModsFor(0).Power),
             Ln = h.Learned.Select((l, i) => l ? 1 << i : 0).Sum(), Lp = LearnPoints(h),
             Dq = Duel && _roundPhase == RoundPhase.Countdown ? h.DuelPending.ToArray() : [],
+            Ch = h.Charm, Chc = MathF.Round(h.CharmCd, 1), Chm = CharmCooldown(h), Rc = MathF.Round(h.RecallT, 1),
         };
     }
 

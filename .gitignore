@@ -5,3 +5,4 @@ obj/
 publish/
 # Holds the real database password: kept on your machine and deployed with the app, never committed.
 appsettings.Production.json
+App_Data/

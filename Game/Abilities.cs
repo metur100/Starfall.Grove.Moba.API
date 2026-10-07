@@ -36,7 +36,7 @@ public sealed partial class Match
         if (h.StealthT > 0) EndStealth(h, keepEmpower: true);
         dmg *= mult;
         var windup = MathF.Min(AttackWindup(h.Def.Id), h.AttackTimer * .5f);
-        Fx(new FxDto { E = "atk", U = h.Id, K = h.Def.Basic.Id, X = Ri(t.Pos.X), Y = Ri(t.Pos.Y), V = Ri(windup * 1000) });
+        Fx(new FxDto { E = "atk", U = h.Id, U2 = t.Id, K = h.Def.Basic.Id, X = Ri(t.Pos.X), Y = Ri(t.Pos.Y), V = Ri(windup * 1000) });
         // The blow lands (or the shot leaves) when the windup ends, if the hero can still act.
         Later(windup, () => { if (h.Alive && h.CanAct && t.Alive) Strike(h, t, dmg, crit); });
     }
@@ -116,6 +116,7 @@ public sealed partial class Match
         if (h.RootT > 0 && def.Effects.Contains("dash")) return "rooted";
 
         h.Mana -= cost;
+        CancelRecall(h);
         h.Cooldowns[slot] = def.Toggle ? .6f : def.Cooldown * m.Cd;
         if (h.StealthT > 0 && def.Id != "stealth") EndStealth(h, keepEmpower: true);
         if (target != null && target != h) h.Facing = (target.Pos - h.Pos).Norm();

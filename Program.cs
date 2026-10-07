@@ -24,6 +24,9 @@ builder.Services.ConfigureHttpJsonOptions(o => o.SerializerOptions.Converters.Ad
 builder.Services.AddSingleton<RoomManager>();
 builder.Services.AddSingleton<Outbox>();
 builder.Services.AddSingleton<MatchStore>();
+builder.Services.AddSingleton<ProfileStore>();
+builder.Services.AddSingleton<Matchmaker>();
+builder.Services.AddSingleton<Rewards>();
 builder.Services.AddHostedService<GameLoop>();
 
 var app = builder.Build();
@@ -32,11 +35,13 @@ app.UseCors();
 app.UseWebSockets();
 
 app.MapGet("/", () => Results.Text("Mini Rift server for Starfall Grove is running. Connect a client to /hub.", "text/plain"));
-app.MapGet("/api/health", (RoomManager rooms, MatchStore store) => new
+app.MapGet("/api/health", (RoomManager rooms, MatchStore store, ProfileStore profiles, Matchmaker matchmaker) => new
 {
     ok = true,
     rooms = rooms.Rooms.Count,
     players = rooms.Seats.Count,
+    searching = matchmaker.Searching,
+    profiles = profiles.Mode,
     database = store.Ready ? "ready" : store.Connecting ? "connecting" : store.Enabled ? "unavailable" : "off",
     databaseError = store.Ready ? null : store.LastError,
     time = DateTime.UtcNow,
@@ -44,7 +49,10 @@ app.MapGet("/api/health", (RoomManager rooms, MatchStore store) => new
 app.MapGet("/api/catalog", () => MobaHub.BuildCatalog());
 app.MapGet("/api/matches/recent", async (MatchStore store) => Results.Ok(await store.RecentAsync()));
 app.MapGet("/api/stats/heroes", async (MatchStore store) => Results.Ok(await store.HeroStatsAsync()));
+app.MapGet("/api/leaderboard", async (ProfileStore profiles, string? type) => Results.Ok(await profiles.LeaderboardAsync(type == "duel" ? "duel" : "battle")));
 app.MapHub<MobaHub>("/hub");
 
 _ = app.Services.GetRequiredService<MatchStore>().InitAsync();
+// Profiles must be ready before anyone connects: the database decides where they live.
+await app.Services.GetRequiredService<ProfileStore>().InitAsync();
 app.Run();

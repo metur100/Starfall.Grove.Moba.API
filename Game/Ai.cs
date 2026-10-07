@@ -212,6 +212,7 @@ public sealed partial class Match
         if (s.StuckT > .75f) { s.StuckT = 0; s.Nudge = new Vec(-h.MoveDir.Y, h.MoveDir.X) * (_rng.Next() < .5f ? 1 : -1); s.NudgeT = .5f; return; }
 
         BotUpgrade(h);
+        TryBotCharm(h);
         if (Duel) { DuelBot(h); return; }
         var hp = h.Hp / h.MaxHp;
         if (hp < .3f) s.Retreat = true;
@@ -223,6 +224,13 @@ public sealed partial class Match
         {
             h.AttackHeld = false;
             if (foe != null && Vec.Dist(foe.Pos, h.Pos) < 300) TryBotCast(h, foe, escaping: true);
+            // Far from home with nobody chasing: recall instead of walking all the way back.
+            if (foe == null && Vec.Dist(h.Pos, Map.Spawn[h.Team]) > 1100)
+            {
+                if (h.RecallT <= 0) Recall(h);
+                h.MoveDir = Vec.Zero;
+                return;
+            }
             MoveAlongLane(h, Map.Spawn[h.Team]);
             return;
         }

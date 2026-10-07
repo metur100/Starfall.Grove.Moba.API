@@ -12,7 +12,7 @@ public sealed partial class Match
     public const int DuelStartLevel = 6, RoundsToWin = 3;
     /// <summary>The countdown before a round is when the upgrades are picked (the first one is longer, to read them);
     /// it ends early once everyone has picked. The break after a round is just long enough to see who won it.</summary>
-    public const float FirstCountdown = 20, CountdownTime = 14, BreakTime = 3, AfterPicks = 3;
+    public const float FirstCountdown = 20, CountdownTime = 14, BreakTime = 5, AfterPicks = 3;
     /// <summary>The ring starts closing this long into a round, takes RingShrink seconds to reach RingMin, and burns
     /// RingBurn of a hero's health per second outside it (more the longer the round goes on).</summary>
     public const float RingStart = 60, RingShrink = 45, RingMin = 210, RingBurn = .04f;
@@ -30,6 +30,7 @@ public sealed partial class Match
         _roundTimer = _round == 1 ? FirstCountdown : CountdownTime;
         _roundElapsed = 0;
         _ringR = Map.ArenaRadius + 40;
+        _shardUp = _shardTaken = false;
         Projectiles.Clear(); Zones.Clear(); _delayed.Clear();
         foreach (var w in Units.Where(u => u.Kind == UnitKind.Pet && u.Sub != "fenn")) w.Dead = true;
         var slot = new int[3];
@@ -44,6 +45,7 @@ public sealed partial class Match
             h.Facing = (Map.Center - h.Pos).Norm();
             h.StunT = h.RootT = h.SlowT = h.InvulnT = h.StealthT = h.GuardT = h.SpinT = h.ShieldT = h.Shield = h.ShellT = 0;
             h.BlessT = h.FrenzyT = h.MarkT = h.DashT = h.PushT = h.CastT = h.AttackTimer = h.Empowered = 0;
+            h.HasteT = h.CharmCd = h.RecallT = 0;
             h.StarCount = 0; h.TargetId = 0; h.OnCast = null; h.OnDashEnd = null;
             Array.Clear(h.Cooldowns);
             h.Attackers.Clear();
@@ -67,6 +69,7 @@ public sealed partial class Match
 
             case RoundPhase.Fight:
                 _roundElapsed += Dt;
+                UpdateShard();
                 if (_roundElapsed > RingStart)
                 {
                     var full = Map.ArenaRadius + 40;
@@ -128,6 +131,12 @@ public sealed partial class Match
         h.TargetId = foe.Id;
         TryBotCast(h, foe, escaping: h.Hp / h.MaxHp < .25f);
         var d = Vec.Dist(foe.Pos, h.Pos);
+        // The Starshard is worth a detour when the bot is nearer to it than its enemy is.
+        if (_shardUp && Vec.Dist(h.Pos, Map.Center) + 60 < Vec.Dist(foe.Pos, Map.Center) && d > 160)
+        {
+            h.MoveDir = (Map.Center - h.Pos).Norm(); h.AttackHeld = false;
+            return;
+        }
         // Lost sight behind a stone: walk round it.
         if (!LineOfSight(h.Pos, foe.Pos)) { h.MoveDir = SteerAround(h.Pos, foe.Pos); h.AttackHeld = false; return; }
         var reach = h.AttackRange + foe.Radius - 10;

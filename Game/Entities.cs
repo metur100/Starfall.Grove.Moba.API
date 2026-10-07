@@ -8,7 +8,7 @@ public enum St
 {
     None = 0, Stun = 1, Root = 2, Slow = 4, Shell = 8, Stealth = 16, Guard = 32, Spin = 64, Shield = 128,
     Stars = 256, Dead = 512, Blessed = 1024, Marked = 2048, Empowered = 4096, Casting = 8192, Frenzy = 16384,
-    Invulnerable = 32768, Dashing = 65536,
+    Invulnerable = 32768, Dashing = 65536, Recall = 131072, Haste = 262144,
 }
 
 /// <summary>Anything that fights: heroes, minions, towers, Cores, neutral monsters and pets.</summary>
@@ -31,6 +31,8 @@ public class Unit
 
     // Timers in seconds.
     public float StunT, RootT, SlowT, SlowAmt, InvulnT, StealthT, GuardT, SpinT, ShieldT, Shield, ShellT, BlessT, FrenzyT, MarkT, DashT;
+    /// <summary>A burst of speed (Ghost, Heal): how long it lasts and how much faster (0.3 = 30%).</summary>
+    public float HasteT, HasteAmt;
     public float AggroT;
     /// <summary>A tower's hits in a row on the same hero (each one hurts more).</summary>
     public int Hits;
@@ -59,7 +61,7 @@ public class Unit
     public bool CanMove => !Dead && StunT <= 0 && RootT <= 0 && ShellT <= 0 && DashT <= 0;
     public bool CanAct => !Dead && StunT <= 0 && ShellT <= 0 && DashT <= 0;
     public bool IsStructure => Kind is UnitKind.Tower or UnitKind.Core;
-    public float MoveSpeed => Speed * (SlowT > 0 ? 1 - SlowAmt : 1) * (StealthT > 0 ? 1.2f : 1) * (SpinT > 0 ? 1.1f : 1);
+    public float MoveSpeed => Speed * (SlowT > 0 ? 1 - SlowAmt : 1) * (StealthT > 0 ? 1.2f : 1) * (SpinT > 0 ? 1.1f : 1) * (HasteT > 0 ? 1 + HasteAmt : 1);
 
     public virtual St Status(float now)
     {
@@ -79,6 +81,7 @@ public class Unit
         if (FrenzyT > 0) s |= St.Frenzy;
         if (InvulnT > 0) s |= St.Invulnerable;
         if (DashT > 0) s |= St.Dashing;
+        if (HasteT > 0) s |= St.Haste;
         return s;
     }
 }
@@ -104,6 +107,13 @@ public sealed class Hero : Unit
     public readonly List<int> DuelPending = [];
     public float RespawnT;
     public int Kills, Deaths, Assists, Streak;
+    /// <summary>Kills close together (a double, triple… kill) and when the last one was.</summary>
+    public int Multi; public float LastKillT = -99;
+    /// <summary>The charm the player brought (Flash, Heal, Ghost or Barrier) and its cooldown.</summary>
+    public string Charm = "flash";
+    public float CharmCd;
+    /// <summary>Seconds left of a recall home (battles); 0 when not recalling.</summary>
+    public float RecallT;
     public float DamageDealt, HeroDamage, Healing;
 
     // Input from the player (or the bot driving them).
@@ -135,6 +145,7 @@ public sealed class Hero : Unit
         var s = base.Status(now);
         if (Empowered > 0) s |= St.Empowered;
         if (CastT > 0) s |= St.Casting;
+        if (RecallT > 0) s |= St.Recall;
         return s;
     }
 }
