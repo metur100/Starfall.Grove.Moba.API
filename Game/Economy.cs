@@ -19,11 +19,12 @@ public static class Economy
 {
     public const int StartCoins = 600;
     public const int StartRating = 1000;
-    public static readonly string[] Starters = ["mira", "kael", "wren"];
+    /// <summary>The heroes every new account owns. The rest are bought with coins, or played free while in the weekly rotation.</summary>
+    public static readonly string[] Starters = ["mira"];
 
     public static readonly Dictionary<string, int> HeroPrices = new()
     {
-        ["mira"] = 0, ["kael"] = 0, ["wren"] = 0, ["lyra"] = 1200, ["elara"] = 1200, ["riven"] = 1600,
+        ["mira"] = 0, ["kael"] = 900, ["wren"] = 900, ["lyra"] = 1200, ["elara"] = 1200, ["riven"] = 1600,
     };
 
     public const int Rare = 600, Epic = 900, Legendary = 1500;
@@ -85,15 +86,17 @@ public static class Economy
     /// <summary>Coins for reaching a level: more at every fifth.</summary>
     public static int LevelReward(int level) => level % 5 == 0 ? 400 : 100;
 
+    public const int RotationSize = 2;
     /// <summary>
-    /// The heroes everyone can play this week without owning them: one of the heroes that cost coins, changing every
+    /// The heroes everyone can play this week without owning them: two of the heroes that cost coins, changing every
     /// Monday (UTC).
     /// </summary>
     public static string[] Rotation(DateTime utc)
     {
         var paid = HeroPrices.Where(kv => kv.Value > 0).Select(kv => kv.Key).OrderBy(k => k).ToArray();
         var week = (int)((utc.Date - new DateTime(2024, 1, 1)).TotalDays / 7);
-        return [paid[week % paid.Length]];
+        // Two heroes a week, moving along the list, so every hero comes round every few weeks.
+        return [paid[week * RotationSize % paid.Length], paid[(week * RotationSize + 1) % paid.Length]];
     }
 
     // ───────────────────────────── daily quests

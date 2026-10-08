@@ -14,6 +14,8 @@ dotnet run --launch-profile http     # http://localhost:5080
 
 - `GET /api/health` shows rooms, players and database state (`off`, `connecting`, `ready` or `unavailable`).
 - `GET /api/catalog` lists heroes, abilities, upgrades and maps.
+- `GET /api/maps/preview` gives every map's layout (lanes, rocks and trees, towers, Cores, camps, the Warden) for the
+  little previews in room setup.
 - `GET /api/matches/recent`, `GET /api/stats/heroes` read match history (empty without a database).
 - `GET /api/leaderboard?type=battle|duel` lists the best players by rating.
 - `/hub` is the SignalR hub.
@@ -99,7 +101,8 @@ on, never stored, at most 200 characters and 5 per 6 seconds, with slurs and ins
 ## Players, coins and matchmaking
 
 A browser keeps a secret token; `Hello` ties a connection to that token's **profile** (stored by a hash of the token).
-A new player gets 600 coins and three heroes (Mira, Kael, Wren); one other hero is free each week. The rest, and three
+A new player gets 600 coins and one hero, Mira (`Economy.Starters`); two other heroes are free to play each week
+(`Economy.Rotation`, changing every Monday UTC). The rest (Kael and Wren 900, Lyra and Elara 1200, Riven 1600), and three
 skins per hero (rare 600, epic 900, legendary 1500), are bought with coins.
 
 Every match pays coins and player experience: a battle win 120 / loss 50, a duel win 90 / loss 35, plus a little for

@@ -52,6 +52,7 @@ app.MapGet("/api/health", (RoomManager rooms, MatchStore store, ProfileStore pro
     time = DateTime.UtcNow,
 });
 app.MapGet("/api/catalog", () => MobaHub.BuildCatalog());
+app.MapGet("/api/maps/preview", () => Starfall.Grove.Moba.Api.Game.Maps.Previews);
 app.MapGet("/api/matches/recent", async (MatchStore store) => Results.Ok(await store.RecentAsync()));
 app.MapGet("/api/stats/heroes", async (MatchStore store) => Results.Ok(await store.HeroStatsAsync()));
 app.MapGet("/api/leaderboard", async (ProfileStore profiles, string? type) => Results.Ok(await profiles.LeaderboardAsync(type == "duel" ? "duel" : "battle")));

@@ -59,6 +59,26 @@ public static class Maps
 
     public static Info? Find(string id) => List.FirstOrDefault(m => m.Id == id);
 
+    /// <summary>A map's layout for the little preview in room setup: lanes, rocks and trees, towers, Cores, camps and the
+    /// Warden, in whole map units.</summary>
+    public sealed record PreviewDto(string Id, string Theme, string Type, int W, int H, int LaneWidth, List<List<int[]>> Lanes,
+        List<int[]> Obstacles, List<int[]> Cores, List<int[]> Towers, List<int[]> Camps, int[]? Objective, int[] Center, int ArenaRadius);
+
+    private static readonly Lazy<PreviewDto[]> _previews = new(() => [.. List.Select(i =>
+    {
+        var m = Build(i.Id);
+        static int R(float v) => (int)MathF.Round(v);
+        return new PreviewDto(m.Id, m.Theme, m.Type, R(m.W), R(m.H), R(m.LaneWidth),
+            m.Lanes.Select(l => l.Select(p => new[] { R(p.X), R(p.Y) }).ToList()).ToList(),
+            m.Obstacles.Select(o => new[] { R(o.X), R(o.Y), R(o.R), o.K == "pool" ? 1 : 0 }).ToList(),
+            m.Duel ? [] : [[R(m.Core[1].X), R(m.Core[1].Y), 1], [R(m.Core[2].X), R(m.Core[2].Y), 2]],
+            [.. new[] { 1, 2 }.SelectMany(t => m.Towers[t].SelectMany(l => l).Select(p => new[] { R(p.X), R(p.Y), t }))],
+            m.Camps.Select(c => new[] { R(c.Pos.X), R(c.Pos.Y) }).ToList(),
+            m.Objective is { } o ? [R(o.X), R(o.Y)] : null, [R(m.Center.X), R(m.Center.Y)], R(m.ArenaRadius));
+    })]);
+    /// <summary>Every map's preview (built once).</summary>
+    public static PreviewDto[] Previews => _previews.Value;
+
     public static MapDef Build(string id) => id switch
     {
         "frost" => OneLane("frost", "Frostfang Pass", "summit", amp: 120, waves: 2, objectiveTop: false, seed: 77,
