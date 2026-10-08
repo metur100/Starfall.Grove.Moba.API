@@ -10,4 +10,11 @@
     <PackageReference Include="Microsoft.Data.SqlClient" Version="5.2.2" />
   </ItemGroup>
 
+  <!-- A local publish folder or the development data is never part of a build or a deploy. -->
+  <ItemGroup>
+    <Compile Remove="publish/**" />
+    <Content Remove="publish/**;App_Data/**" />
+    <None Remove="publish/**;App_Data/**" />
+  </ItemGroup>
+
 </Project>
