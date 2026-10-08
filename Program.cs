@@ -31,6 +31,7 @@ builder.Services.AddSingleton<Social>();
 builder.Services.AddSingleton<Mailer>();
 builder.Services.AddHostedService<GameLoop>();
 
+Room.SurrenderAfter = builder.Configuration.GetValue("Match:SurrenderAfterSeconds", Room.SurrenderAfter);
 var app = builder.Build();
 
 app.UseCors();

@@ -5,6 +5,8 @@ public sealed record SkinDef(string Id, string Hero, string Name, string Tier, i
 /// <summary>A small extra spell every hero brings to a match, chosen in hero select.</summary>
 public sealed record CharmDef(string Id, string Name, string Text, float Cooldown, float DuelCooldown);
 public sealed record RankDef(string Name, int Min);
+/// <summary>A daily quest: what to do (Goal times), and the coins it pays once done.</summary>
+public sealed record QuestDef(string Id, string Text, int Goal, int Coins);
 
 /// <summary>
 /// Coins, player levels, ranks and the shop: what heroes and skins cost, what a match pays and how a player levels up.
@@ -77,15 +79,54 @@ public static class Economy
         return [paid[week % paid.Length]];
     }
 
+    // ───────────────────────────── daily quests
+
+    public const int QuestsPerDay = 3;
+    public static readonly QuestDef[] Quests =
+    [
+        new("play3", "Play 3 matches", 3, 100),
+        new("win2", "Win 2 matches", 2, 150),
+        new("takedowns15", "Get 15 takedowns", 15, 120),
+        new("assists8", "Get 8 assists", 8, 100),
+        new("battle2", "Play 2 battles", 2, 100),
+        new("duel2", "Play 2 duels", 2, 100),
+        new("damage", "Deal 8,000 damage to heroes", 8000, 120),
+    ];
+    public static readonly Dictionary<string, QuestDef> QuestById = Quests.ToDictionary(q => q.Id);
+
+    /// <summary>The player's three quests for a day (UTC): the same all day, different for every player and day.</summary>
+    public static QuestDef[] DailyQuests(string profileId, DateTime utc)
+    {
+        // A stable hash: string.GetHashCode changes with every start of the server.
+        var seed = 17;
+        foreach (var c in profileId + utc.ToString("yyyy-MM-dd")) seed = unchecked(seed * 31 + c);
+        var rng = new Random(seed);
+        return [.. Quests.OrderBy(_ => rng.Next()).Take(QuestsPerDay)];
+    }
+
+    /// <summary>How far one match takes a quest.</summary>
+    public static int QuestStep(string quest, bool won, bool duel, int kills, int assists, int heroDamage) => quest switch
+    {
+        "play3" => 1,
+        "win2" => won ? 1 : 0,
+        "takedowns15" => kills + assists,
+        "assists8" => assists,
+        "battle2" => duel ? 0 : 1,
+        "duel2" => duel ? 1 : 0,
+        "damage" => heroDamage,
+        _ => 0,
+    };
+
     // ───────────────────────────── match rewards
 
     public const int FirstWinBonus = 150;
 
     /// <summary>
     /// Coins and experience for one player's match. Winning pays more than losing; kills and assists add a little.
-    /// Matches from matchmaking pay in full, custom rooms three quarters. Leaving early pays nothing.
+    /// Matches from matchmaking pay in full; custom rooms and practice against bots (<paramref name="cut"/> names which)
+    /// three quarters. Leaving early pays nothing.
     /// </summary>
-    public static (int Coins, int Xp, List<RewardLine> Lines) MatchReward(bool won, bool duel, bool matchmade, int kills, int assists, bool firstWin, bool leaver)
+    public static (int Coins, int Xp, List<RewardLine> Lines) MatchReward(bool won, bool duel, string? cut, int kills, int assists, bool firstWin, bool leaver)
     {
         var lines = new List<RewardLine>();
         if (leaver) { lines.Add(new("Left the match", 0)); return (0, 0, lines); }
@@ -94,14 +135,14 @@ public static class Economy
         var play = Math.Min(40, kills * 4 + assists * 2);
         if (play > 0) lines.Add(new($"Takedowns ({kills} + {assists})", play));
         var coins = baseCoins + play;
-        if (!matchmade)
+        if (cut != null)
         {
-            var cut = coins - (int)MathF.Round(coins * .75f);
-            if (cut > 0) { lines.Add(new("Custom room", -cut)); coins -= cut; }
+            var less = coins - (int)MathF.Round(coins * .75f);
+            if (less > 0) { lines.Add(new(cut, -less)); coins -= less; }
         }
         if (firstWin) { lines.Add(new("First win of the day", FirstWinBonus)); coins += FirstWinBonus; }
         var xp = (won ? 100 : 60) + Math.Min(30, kills * 3 + assists * 2);
-        if (!matchmade) xp = (int)MathF.Round(xp * .75f);
+        if (cut != null) xp = (int)MathF.Round(xp * .75f);
         return (coins, xp, lines);
     }
 

@@ -37,6 +37,9 @@ public sealed class Profile
     /// <summary>The UTC day (yyyy-MM-dd) of the last first-win bonus.</summary>
     public string? FirstWinDay { get; set; }
     public List<MatchRecord> Recent { get; set; } = [];
+    /// <summary>The day (UTC, yyyy-MM-dd) the quest progress belongs to, and how far each of that day's quests is.</summary>
+    public string? QuestDay { get; set; }
+    public Dictionary<string, int> QuestProgress { get; set; } = [];
     public DateTime Created { get; set; } = DateTime.UtcNow;
 
     // ── the account (null until the player registers)
@@ -59,7 +62,17 @@ public sealed class Profile
     public bool FirstWinReady(DateTime utc) => FirstWinDay != utc.ToString("yyyy-MM-dd");
     /// <summary>Heroes this player may pick: owned ones and this week's free ones.</summary>
     public HashSet<string> Playable(DateTime utc) => [.. Heroes, .. Economy.Rotation(utc)];
+
+    /// <summary>Today's quests with their progress (a new day starts them over).</summary>
+    public List<QuestDto> QuestsFor(DateTime utc)
+    {
+        var day = utc.ToString("yyyy-MM-dd");
+        if (QuestDay != day) { QuestDay = day; QuestProgress = []; }
+        return [.. Economy.DailyQuests(Id, utc).Select(q => new QuestDto(q.Id, q.Text, Math.Min(q.Goal, QuestProgress.GetValueOrDefault(q.Id)), q.Goal, q.Coins))];
+    }
 }
+
+public sealed record QuestDto(string Id, string Text, int Progress, int Goal, int Coins);
 
 public sealed record MatchRecord(string Hero, string Type, int Mode, bool Won, int K, int D, int A, int Coins, bool Ranked, DateTime At);
 
@@ -68,7 +81,7 @@ public sealed record ProfileDto(
     string Id, string Name, int Coins, int Level, int Xp, int XpNext, List<string> Heroes, List<string> Skins,
     Dictionary<string, string> Equipped, string Charm, Dictionary<string, int> Rating, Dictionary<string, string> Rank,
     int Games, int Wins, int Kills, int Deaths, int Assists, Dictionary<string, int[]> HeroStats, bool FirstWinReady,
-    string[] Rotation, List<MatchRecord> Recent, string? Username, string? Email, int Requests)
+    string[] Rotation, List<MatchRecord> Recent, string? Username, string? Email, int Requests, List<QuestDto> Quests)
 {
     public static ProfileDto Of(Profile p)
     {
@@ -77,7 +90,7 @@ public sealed record ProfileDto(
             return new(p.Id, p.Name, p.Coins, p.Level, p.Xp, Economy.XpToNext(p.Level), [.. p.Heroes], [.. p.Skins], new(p.Equipped), p.Charm,
                 new(p.Rating), p.Rating.ToDictionary(kv => kv.Key, kv => Economy.RankOf(kv.Value)), p.Games, p.Wins, p.Kills, p.Deaths, p.Assists,
                 p.HeroStats.ToDictionary(kv => kv.Key, kv => kv.Value.ToArray()), p.FirstWinReady(now), Economy.Rotation(now), [.. p.Recent],
-                p.Username, p.Email, p.Requests.Count);
+                p.Username, p.Email, p.Requests.Count, p.QuestsFor(now));
     }
 }
 
@@ -289,7 +302,7 @@ public sealed class ProfileStore(IConfiguration config, IWebHostEnvironment env,
         foreach (var s in Economy.Starters) if (!p.Heroes.Contains(s)) p.Heroes.Add(s);
         foreach (var t in new[] { "battle", "duel" }) p.Rating.TryAdd(t, Economy.StartRating);
         if (!Economy.CharmById.ContainsKey(p.Charm)) p.Charm = "flash";
-        p.Friends ??= []; p.Requests ??= []; p.Blocked ??= [];
+        p.Friends ??= []; p.Requests ??= []; p.Blocked ??= []; p.QuestProgress ??= [];
     }
 
     private async Task<Profile?> LoadAsync(string key)

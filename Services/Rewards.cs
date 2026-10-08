@@ -27,7 +27,9 @@ public sealed class Rewards(ProfileStore store, Outbox outbox, ILogger<Rewards> 
                 lock (p)
                 {
                     var firstWin = won && !j.Leaver && p.FirstWinReady(now);
-                    var (coins, xp, lines) = Economy.MatchReward(won, duel, b.Matchmade, j.K, j.A, firstWin, j.Leaver);
+                    var ranked = b.Matchmade && !b.Practice;
+                    var cut = b.Practice ? "Practice vs bots" : b.Matchmade ? null : "Custom room";
+                    var (coins, xp, lines) = Economy.MatchReward(won, duel, cut, j.K, j.A, firstWin, j.Leaver);
                     if (firstWin) p.FirstWinDay = now.ToString("yyyy-MM-dd");
                     int lvFrom = p.Level, xpFrom = p.Xp, nextFrom = Economy.XpToNext(p.Level);
                     p.Xp += xp;
@@ -39,12 +41,21 @@ public sealed class Rewards(ProfileStore store, Outbox outbox, ILogger<Rewards> 
                         coins += bonus;
                         lines.Add(new($"Reached level {p.Level}", bonus));
                     }
+                    // Daily quests: progress from this match, and coins for each one it finishes.
+                    if (!j.Leaver)
+                        foreach (var q in p.QuestsFor(now))
+                        {
+                            if (q.Progress >= q.Goal) continue;
+                            var to = Math.Min(q.Goal, q.Progress + Economy.QuestStep(q.Id, won, duel, j.K, j.A, j.HeroDamage));
+                            p.QuestProgress[q.Id] = to;
+                            if (to >= q.Goal) { coins += q.Coins; lines.Add(new($"Daily quest: {q.Text}", q.Coins)); }
+                        }
                     p.Coins += coins;
 
                     // Only matchmaking moves the rating; a leaver always loses it.
                     var before = p.RatingFor(b.Type);
                     var delta = 0;
-                    if (b.Matchmade)
+                    if (ranked)
                     {
                         delta = Economy.RatingChange(b.TeamRating[j.Team], b.TeamRating[3 - j.Team], won && !j.Leaver, b.WithBots);
                         p.Rating[b.Type] = Math.Max(0, before + delta);
@@ -55,11 +66,11 @@ public sealed class Rewards(ProfileStore store, Outbox outbox, ILogger<Rewards> 
                     p.Kills += j.K; p.Deaths += j.D; p.Assists += j.A;
                     if (!p.HeroStats.TryGetValue(j.Hero, out var hs)) p.HeroStats[j.Hero] = hs = [0, 0];
                     hs[0]++; if (won) hs[1]++;
-                    p.Recent.Insert(0, new MatchRecord(j.Hero, b.Type, b.Mode, won, j.K, j.D, j.A, coins, b.Matchmade, now));
+                    p.Recent.Insert(0, new MatchRecord(j.Hero, b.Type, b.Mode, won, j.K, j.D, j.A, coins, ranked, now));
                     if (p.Recent.Count > 12) p.Recent.RemoveRange(12, p.Recent.Count - 12);
 
                     dto = new RewardsDto(won, coins, xp, lines, lvFrom, xpFrom, nextFrom, p.Level, p.Xp, Economy.XpToNext(p.Level),
-                        b.Matchmade, b.Type, delta, p.RatingFor(b.Type), Economy.RankOf(p.RatingFor(b.Type)), Economy.RankOf(before));
+                        ranked, b.Type, delta, p.RatingFor(b.Type), Economy.RankOf(p.RatingFor(b.Type)), Economy.RankOf(before));
                 }
                 store.Save(p);
                 if (j.ConnectionId != null)

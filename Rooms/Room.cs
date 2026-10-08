@@ -29,19 +29,25 @@ public sealed class RoomPlayer
     public int Rating { get; set; } = Economy.StartRating;
     public string? Skin { get; set; }
     public string Charm { get; set; } = "flash";
+    /// <summary>When this player last pinged the map (for the rate limit).</summary>
+    public Queue<DateTime> Signals { get; } = new();
     public bool Connected => Bot || ConnectionId != null;
     /// <summary>A bot drives this hero: a bot seat, or a human who has been gone too long.</summary>
     public bool BotControl => Bot || (DisconnectedAt is { } t && (DateTime.UtcNow - t).TotalSeconds > Room.TakeoverSeconds);
 }
 
 public sealed record RoomPlayerView(string Id, string Name, int Team, bool Ready, bool Bot, bool Connected, string? Hero, bool Locked, string? Skin, int Level, string Charm);
-public sealed record RoomView(string Code, string Phase, int Mode, string Map, string Type, string HostId, string You, float Timer, List<RoomPlayerView> Players, int Winner, bool Matchmade, bool Public);
+public sealed record RoomView(string Code, string Phase, int Mode, string Map, string Type, string HostId, string You, float Timer, List<RoomPlayerView> Players, int Winner, bool Matchmade, bool Public, bool Practice);
+/// <summary>A team's surrender vote, as its members see it. <c>Result</c> is set once: "passed" or "failed".</summary>
+public sealed record VoteDto(bool Active, int Yes, int No, int Needed, int Voters, float Left, bool? You, string? Result, string By);
+/// <summary>A map ping from a teammate: attack, danger, omw (on my way), help or go (go here).</summary>
+public sealed record SignalDto(int U, string Kind, int X, int Y);
 /// <summary>An open public room, as the room list shows it.</summary>
 public sealed record RoomListing(string Code, string Host, int Mode, string Map, string Type, int Players, int Seats);
 
 /// <summary>What a finished match means for one player's profile (handed to <see cref="Services.Rewards"/>).</summary>
-public sealed record RewardJob(Profile Profile, string? ConnectionId, string Hero, int Team, bool Leaver, int K, int D, int A, int Rating);
-public sealed record RewardBatch(string Type, int Mode, bool Matchmade, int Winner, bool WithBots, List<RewardJob> Jobs, float[] TeamRating);
+public sealed record RewardJob(Profile Profile, string? ConnectionId, string Hero, int Team, bool Leaver, int K, int D, int A, int Rating, int HeroDamage = 0);
+public sealed record RewardBatch(string Type, int Mode, bool Matchmade, int Winner, bool WithBots, List<RewardJob> Jobs, float[] TeamRating, bool Practice = false);
 
 /// <summary>An outgoing message: to one connection.</summary>
 public sealed record Outgoing(string ConnectionId, string Method, object?[] Args);
@@ -53,6 +59,11 @@ public sealed record Outgoing(string ConnectionId, string Method, object?[] Args
 public sealed class Room
 {
     public const float HeroSelectSeconds = 40, LoadingSeconds = 15, StartingSeconds = 3, TakeoverSeconds = 45;
+    /// <summary>A battle can be surrendered after SurrenderAfter seconds (Match:SurrenderAfterSeconds); a vote runs
+    /// VoteSeconds, and a failed one waits VoteCooldown.</summary>
+    public const float VoteSeconds = 30, VoteCooldown = 90;
+    public static float SurrenderAfter { get; set; } = 300;
+    public static readonly string[] SignalKinds = ["attack", "danger", "omw", "help", "go"];
     public const int SnapshotEvery = 2;
 
     public readonly object Lock = new();
@@ -69,6 +80,8 @@ public sealed class Room
     public int Winner { get; private set; }
     /// <summary>Made by matchmaking: no lobby, no host, and it pays (and rates) in full.</summary>
     public bool Matchmade { get; private set; }
+    /// <summary>A matchmade game against bots that the player asked for: pays like a custom room and isn't rated.</summary>
+    public bool Practice { get; private set; }
     /// <summary>A custom room anyone can find in the room list.</summary>
     public bool Public { get; set; }
     public string Type => Maps.Find(MapId)?.Type ?? "battle";
@@ -185,9 +198,9 @@ public sealed class Room
 
     /// <summary>Sets up a room made by matchmaking: the players (already on their teams), bots in any empty seats, and
     /// straight on to hero select.</summary>
-    public void BeginMatchmade(int mode, string map, IEnumerable<RoomPlayer> humans)
+    public void BeginMatchmade(int mode, string map, IEnumerable<RoomPlayer> humans, bool practice = false)
     {
-        Matchmade = true; Mode = mode; MapId = map; HostId = "";
+        Matchmade = true; Practice = practice; Mode = mode; MapId = map; HostId = "";
         foreach (var p in humans) { p.Ready = true; Players.Add(p); }
         FillWithBots();
         StartHeroSelect();
@@ -282,7 +295,7 @@ public sealed class Room
         foreach (var p in Players.Where(p => !p.Locked)) AutoPick(p);
         var players = Players.Select(p => new MatchPlayer(p.Id, p.Name, p.Hero!, p.Team, p.Bot, p.Charm));
         Match = new Match(Maps.Build(MapId), players, _random.Next());
-        _acc = 0; _tick = 0;
+        _acc = 0; _tick = 0; _vote = null; _nextVote[1] = _nextVote[2] = 0;
         foreach (var p in Players) p.Loaded = p.Bot;
         Go(Phase.Loading, LoadingSeconds);
         var heroes = HeroDtos();
@@ -350,6 +363,7 @@ public sealed class Room
     private void PlayMatch(float dt)
     {
         var m = Match!;
+        if (_vote != null) { _vote.Left -= dt; CheckVote(); }
         _acc = MathF.Min(_acc + dt, Match.Dt * 4);
         while (_acc >= Match.Dt && m.Winner == 0)
         {
@@ -397,10 +411,73 @@ public sealed class Room
         var jobs = Humans.Where(p => p.Profile != null).Select(p =>
         {
             var h = m.HeroOf(p.Id)!;
-            return new RewardJob(p.Profile!, p.ConnectionId, h.Def.Id, p.Team, p.BotControl, h.Kills, h.Deaths, h.Assists, p.Rating);
+            return new RewardJob(p.Profile!, p.ConnectionId, h.Def.Id, p.Team, p.BotControl, h.Kills, h.Deaths, h.Assists, p.Rating, (int)h.HeroDamage);
         }).ToList();
-        if (jobs.Count > 0) PendingRewards = new RewardBatch(Type, Mode, Matchmade, m.Winner, Players.Any(p => p.Bot), jobs, [0, TeamRating(1), TeamRating(2)]);
+        if (jobs.Count > 0) PendingRewards = new RewardBatch(Type, Mode, Matchmade, m.Winner, Players.Any(p => p.Bot), jobs, [0, TeamRating(1), TeamRating(2)], Practice);
         Go(Phase.Ended, 0);
+    }
+
+    // ───────────────────────────── surrender and pings
+
+    private sealed class Vote
+    {
+        public int Team;
+        public required string By;
+        public float Left = VoteSeconds;
+        public readonly Dictionary<string, bool> Ballots = [];
+    }
+    private Vote? _vote;
+    private readonly float[] _nextVote = new float[3];
+
+    /// <summary>Starts a surrender vote for the player's team, or casts their vote in the one that is running. Battles
+    /// only, after five minutes. It passes when every player on the team agrees, or two of three: bots and players who
+    /// have left don't vote.</summary>
+    public string? Surrender(RoomPlayer p, bool yes)
+    {
+        if (Phase != Phase.Playing || Match is not { } m) return "Not in a match.";
+        if (Type == "duel") return "Duels can't be surrendered.";
+        if (_vote == null)
+        {
+            if (!yes) return null;
+            if (m.Time < SurrenderAfter) return $"You can surrender after {SurrenderAfter / 60:0} minutes.";
+            if (m.Time < _nextVote[p.Team]) return $"Wait {MathF.Ceiling(_nextVote[p.Team] - m.Time):0} seconds before another vote.";
+            _vote = new Vote { Team = p.Team, By = p.Name };
+        }
+        else if (_vote.Team != p.Team) return "The other team is voting right now.";
+        _vote.Ballots[p.Id] = yes;
+        CheckVote(force: true);
+        return null;
+    }
+
+    private void CheckVote(bool force = false)
+    {
+        if (_vote is not { } v || Match is not { } m) return;
+        var voters = Players.Where(p => p.Team == v.Team && !p.BotControl && p.Connected).ToList();
+        var needed = voters.Count <= 2 ? Math.Max(1, voters.Count) : (int)Math.Ceiling(voters.Count * 2 / 3.0);
+        int yes = voters.Count(p => v.Ballots.GetValueOrDefault(p.Id)), no = voters.Count(p => v.Ballots.TryGetValue(p.Id, out var b) && !b);
+        string? result = yes >= needed ? "passed" : voters.Count - no < needed || v.Left <= 0 ? "failed" : null;
+        if (result == null && !force) return;
+        foreach (var p in voters.Where(p => p.ConnectionId != null))
+            _out.Add(new Outgoing(p.ConnectionId!, "vote", [new VoteDto(result == null, yes, no, needed, voters.Count, MathF.Max(0, MathF.Round(v.Left, 1)),
+                v.Ballots.TryGetValue(p.Id, out var mine) ? mine : null, result, v.By)]));
+        if (result == null) return;
+        _vote = null;
+        if (result == "passed") m.Concede(v.Team);
+        else _nextVote[v.Team] = m.Time + VoteCooldown;
+    }
+
+    /// <summary>Pings the map for the player's team (at most three pings every four seconds).</summary>
+    public string? Signal(RoomPlayer p, string kind, float x, float y)
+    {
+        if (Phase is not (Phase.Playing or Phase.Starting) || Match is not { } m || m.HeroOf(p.Id) is not { } h) return "Not in a match.";
+        if (!SignalKinds.Contains(kind) || !float.IsFinite(x) || !float.IsFinite(y)) return "bad";
+        var now = DateTime.UtcNow;
+        while (p.Signals.Count > 0 && (now - p.Signals.Peek()).TotalSeconds > 4) p.Signals.Dequeue();
+        if (p.Signals.Count >= 3) return "slow";
+        p.Signals.Enqueue(now);
+        var dto = new SignalDto(h.Id, kind, (int)Math.Clamp(x, 0, m.Map.W), (int)Math.Clamp(y, 0, m.Map.H));
+        foreach (var t in Humans.Where(t => t.Team == p.Team && t.ConnectionId != null)) _out.Add(new Outgoing(t.ConnectionId!, "signal", [dto]));
+        return null;
     }
 
     private void Go(Phase phase, float timer)
@@ -413,7 +490,7 @@ public sealed class Room
 
     public RoomView View(RoomPlayer you) => new(Code, PhaseName(Phase), Mode, MapId, Type, HostId, you.Id, MathF.Ceiling(Timer),
         Players.OrderBy(p => p.Team).Select(p => new RoomPlayerView(p.Id, p.Name, p.Team, p.Ready, p.Bot, p.Connected, p.Hero,
-            p.Locked, p.Skin, p.Level, p.Charm)).ToList(), Winner, Matchmade, Public);
+            p.Locked, p.Skin, p.Level, p.Charm)).ToList(), Winner, Matchmade, Public, Practice);
 
     public RoomListing? Listing()
     {

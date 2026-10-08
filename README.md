@@ -26,7 +26,8 @@ dotnet run --launch-profile http     # http://localhost:5080
 | --- | --- |
 | `Cors:Origins` | Sites allowed to connect. GitHub Pages (`https://metur100.github.io`) and Vite dev (`http://localhost:5173`) are in by default. |
 | `ConnectionStrings:Moba` | SQL Server for match history and player profiles. Empty = no history, and profiles are kept as JSON files under `App_Data/profiles` (fine for local play). |
-| `Matchmaking:BotFillSeconds` | How long the oldest player in a queue waits before bots fill the empty seats (default 25). |
+| `Matchmaking:BotOfferSeconds` | How long a player searches before being asked whether to play against bots instead (default 30; asked again every minute after a no). |
+| `Match:SurrenderAfterSeconds` | How long a battle runs before a team may vote to surrender (default 300). |
 | `App:UiUrl` | The game's address, used in password reset links. |
 | `Smtp:Host`, `Port`, `EnableSsl`, `User`, `Password`, `From`, `FromName`, `ReportsTo` | The mail server for password reset emails and player reports. **Without a Host no email is sent** (the link is only written to the log). Put the real values in `appsettings.Production.json`, like the connection string. With Gmail: host `smtp.gmail.com`, port 587, your address as User and From, and an *app password* (Google account → Security → App passwords) as Password. |
 
@@ -96,8 +97,17 @@ played), shown as a rank from Seedling to Celestial.
 
 **Matchmaking** (`FindMatch(type, mode)`): players near each other's rating are grouped (the window widens while they
 wait), everyone must accept within 12 s, then they get a room with balanced teams and go straight to hero select.
-Whoever declines leaves the queue; the rest go back to its front. When too few people are looking, bots fill the empty
-seats after `BotFillSeconds`. **Custom rooms** keep their room codes; a host can also list a room publicly.
+Whoever declines leaves the queue; the rest go back to its front. When nobody fits after `BotOfferSeconds`, the player
+is asked (`AnswerBots(yes)`): yes starts a match at once with anyone else in range who is searching (they accept as usual) and bots in the empty
+seats; no keeps searching. `PlayBots(type, mode)` starts a **practice match** against bots straight away: it pays like a
+custom room and isn't rated. **Custom rooms** keep their room codes; a host can also list a room publicly.
+
+**In a match**: `Signal(kind, x, y)` pings the map for the team (attack, danger, omw, help, go; three every four
+seconds). `Surrender(yes)` starts or answers a team surrender vote in a battle after five minutes: it passes with every
+player (two of three in a 3v3), bots and players who have left don't vote, and a failed vote waits 90 s.
+
+**Daily quests**: three a day per player from a pool of seven (play, win, takedowns, assists, battles, duels, hero
+damage), paid in coins when a match finishes them. They are part of the profile (`quests`).
 
 ## Match rules in short
 

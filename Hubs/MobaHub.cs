@@ -152,9 +152,8 @@ public sealed class MobaHub(RoomManager rooms, Outbox outbox, ProfileStore profi
                 lock (p) { p.ResetHash = ProfileStore.Hash(code); p.ResetExpires = DateTime.UtcNow.AddHours(1); id = p.Id; name = p.Name; }
                 profiles.Save(p);
                 var link = $"{config["App:UiUrl"] ?? "https://metur100.github.io/Starfall.Grove.Moba.UI/"}?reset={id}.{code}";
-                var text = $"Hi {name},\n\nSomeone (hopefully you) asked to reset the password of your Mini Rift account. Open this link within an hour to choose a new one:\n\n{link}\n\nIf you didn't ask for this, ignore this email; your password stays the same.\n\nMini Rift · Starfall Grove";
-                var html = $"<p>Hi <b>{System.Net.WebUtility.HtmlEncode(name)}</b>,</p><p>Someone (hopefully you) asked to reset the password of your Mini Rift account. Open this link within an hour to choose a new one:</p><p><a href=\"{link}\" style=\"display:inline-block;padding:12px 22px;border-radius:12px;background:#f2c24e;color:#3b2a2f;font-weight:800;text-decoration:none\">Choose a new password</a></p><p style=\"color:#777\">Or copy this address into your browser: {link}</p><p style=\"color:#777\">If you didn't ask for this, ignore this email; your password stays the same.</p><p>Mini Rift · Starfall Grove</p>";
-                await mailer.SendAsync(email, "Reset your Mini Rift password", text, html);
+                var (subject, text, html) = Emails.Reset(name, link);
+                await mailer.SendAsync(email, subject, text, html);
             }
         }
         catch (Exception e) { log.LogError(e, "Forgot password failed"); }
@@ -397,6 +396,17 @@ public sealed class MobaHub(RoomManager rooms, Outbox outbox, ProfileStore profi
         return matchmaker.Join(Context.ConnectionId, token, p, type, mode);
     }
 
+    /// <summary>A practice match against bots, straight away: pays like a custom room and isn't rated.</summary>
+    public string? PlayBots(string type, int mode)
+    {
+        if (Token is not { } token || Account is not { } p) return "Sign in first.";
+        LeaveCurrent();
+        return matchmaker.Join(Context.ConnectionId, token, p, type, mode, bots: true);
+    }
+
+    /// <summary>Answers "nobody found yet: play against bots?".</summary>
+    public string? AnswerBots(bool yes) => matchmaker.AnswerBots(Context.ConnectionId, yes);
+
     public void CancelMatch() => matchmaker.Leave(Context.ConnectionId);
 
     public string? AcceptMatch(bool accept) => matchmaker.Respond(Context.ConnectionId, accept);
@@ -587,6 +597,12 @@ public sealed class MobaHub(RoomManager rooms, Outbox outbox, ProfileStore profi
 
     /// <summary>Starts (or stops) recalling home. Battles only.</summary>
     public string? Recall() => WithHero((m, h) => m.Recall(h));
+
+    /// <summary>Starts a surrender vote, or votes in the team's running one.</summary>
+    public string? Surrender(bool yes) => WithRoom((r, p) => r.Surrender(p, yes));
+
+    /// <summary>Pings the map for the team.</summary>
+    public string? Signal(string kind, float x, float y) => WithRoom((r, p) => r.Signal(p, kind ?? "", x, y));
 
     public override Task OnDisconnectedAsync(Exception? exception)
     {

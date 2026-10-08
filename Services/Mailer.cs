@@ -6,7 +6,7 @@ namespace Starfall.Grove.Moba.Api.Services;
 /// <summary>
 /// Sends the game's few emails (password reset links, player reports) over SMTP. Settings under "Smtp" in
 /// appsettings: Host, Port (587), User, Password, From, FromName, and EnableSsl (true). Without a Host nothing is sent:
-/// the message is written to the log instead, which is enough for local development.
+/// the message is written to the log instead (and the HTML to App_Data/outbox), which is enough for local development.
 /// </summary>
 public sealed class Mailer(IConfiguration config, ILogger<Mailer> log)
 {
@@ -17,7 +17,13 @@ public sealed class Mailer(IConfiguration config, ILogger<Mailer> log)
 
     public async Task<bool> SendAsync(string to, string subject, string text, string html)
     {
-        if (!Enabled) { log.LogWarning("No SMTP settings; email to {To} not sent. Subject: {Subject}\n{Text}", to, subject, text); return false; }
+        if (!Enabled)
+        {
+            log.LogWarning("No SMTP settings; email to {To} not sent. Subject: {Subject}\n{Text}", to, subject, text);
+            // Keep a copy to look at in a browser.
+            try { Directory.CreateDirectory("App_Data/outbox"); await File.WriteAllTextAsync($"App_Data/outbox/{DateTime.UtcNow:yyyyMMdd-HHmmss-fff}.html", html); } catch { /* only a convenience */ }
+            return false;
+        }
         try
         {
             using var client = new SmtpClient(_smtp["Host"], _smtp.GetValue("Port", 587))

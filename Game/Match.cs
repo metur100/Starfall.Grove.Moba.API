@@ -138,6 +138,14 @@ public sealed partial class Match
     public Hero? HeroOf(string playerId) => Heroes.FirstOrDefault(h => h.PlayerId == playerId);
     public Hero? CreditOf(Unit? u) => u switch { Hero h => h, { Kind: UnitKind.Pet } p => Get(p.OwnerId) as Hero, _ => null };
 
+    /// <summary>A team gives up (its surrender vote passed): the other team wins.</summary>
+    public void Concede(int team)
+    {
+        if (Winner != 0) return;
+        Winner = 3 - team;
+        Fx(new FxDto { E = "surrender", Tm = team });
+    }
+
     private void Fx(FxDto f) => _fx.Add(f);
     public List<FxDto> TakeFx() { var copy = _fx.ToList(); _fx.Clear(); return copy; }
     private static int R(float v) => (int)MathF.Round(v);
