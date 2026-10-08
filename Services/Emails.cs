@@ -34,6 +34,33 @@ public static class Emails
         return ("Reset your Mini Rift password", text, Page("Choose a new password for your Mini Rift account.", body));
     }
 
+    /// <summary>The welcome email after signing up: thanks, and a link that confirms the email address.</summary>
+    public static (string Subject, string Text, string Html) Welcome(string name, string link)
+    {
+        var text = $"Hi {name},\n\nThank you for creating your Mini Rift account! Please confirm your registration by opening this link (it works for 7 days):\n\n{link}\n\nYour starting heroes and coins are waiting. See you on the Rift!\n\nDidn't sign up? Ignore this email and nothing happens.\n\nMini Rift · Starfall Grove";
+        var n = WebUtility.HtmlEncode(name);
+        var l = WebUtility.HtmlEncode(link);
+        var body = $"""
+            <p style="margin:0 0 6px;font:800 13px/1.4 {Font};letter-spacing:2px;text-transform:uppercase;color:{GoldDark}">✦ Welcome to the Rift ✦</p>
+            <h1 style="margin:0 0 18px;font:700 28px/1.25 {Serif};color:{Ink}">Thank you for joining, {n}!</h1>
+            <p style="margin:0 0 22px;font:400 16px/1.6 {Font};color:{Ink}">Your Mini Rift account is ready. One last step: tap the button to <b>confirm your registration</b>. That way you can always get back in if you forget your password.</p>
+            <table role="presentation" cellpadding="0" cellspacing="0" border="0" style="margin:0 auto 24px"><tr><td align="center" bgcolor="{Gold}" style="border-radius:16px;border:2px solid {Ink};box-shadow:0 4px 0 {Ink}">
+              <a href="{l}" style="display:inline-block;padding:15px 34px;font:900 17px/1 {Font};color:{Ink};text-decoration:none;border-radius:16px">Confirm my registration &rarr;</a>
+            </td></tr></table>
+            <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="margin:0 0 22px"><tr>
+              <td width="33%" align="center" style="padding:10px 4px;font:800 13px/1.4 {Font};color:{Ink}"><div style="font-size:24px">⚔</div>3v3 battles</td>
+              <td width="33%" align="center" style="padding:10px 4px;font:800 13px/1.4 {Font};color:{Ink}"><div style="font-size:24px">✦</div>Duels</td>
+              <td width="33%" align="center" style="padding:10px 4px;font:800 13px/1.4 {Font};color:{Ink}"><div style="font-size:24px">🏆</div>Ranks &amp; skins</td>
+            </tr></table>
+            <p style="margin:0 0 6px;font:400 13px/1.5 {Font};color:{Muted}">Button not working? Copy this address into your browser:</p>
+            <p style="margin:0 0 22px;font:400 12px/1.5 monospace;color:{Muted};word-break:break-all"><a href="{l}" style="color:{GoldDark}">{l}</a></p>
+            <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0"><tr><td style="border-top:2px dashed #E3CFA6;padding-top:16px;font:400 13px/1.5 {Font};color:{Muted}">
+              Didn't sign up for Mini Rift? Just ignore this email and nothing happens. The link works for 7 days.
+            </td></tr></table>
+            """;
+        return ("Welcome to Mini Rift! Please confirm your registration", text, Page("Thank you for creating your account. Confirm your registration in one tap.", body));
+    }
+
     /// <summary>The frame every email shares: the logo over the night sky, the parchment card, and the footer.</summary>
     private static string Page(string preheader, string body) => $"""
         <!doctype html>

@@ -78,6 +78,13 @@ username for five minutes. `ForgotPassword(email)` emails a link (`App:UiUrl?res
 `ResetPassword(code, password)` sets the new password and signs every other device out. `DeleteProfile` deletes the
 account and profile for good.
 
+Signing up sends a welcome email (`Emails.Welcome`) that thanks the player and links to `App:UiUrl?confirm=<id>.<code>`
+(valid 7 days). `ConfirmEmail(code)` marks the address confirmed (it works from any device, signed in or not), and
+`ResendConfirmation` sends a new link, at most once a minute. A password reset also confirms the address. Confirming
+is not needed to play; the profile shows a reminder until it's done. `ChangeUsername(name)` renames the account under
+the same rules as signing up, if no other account has the name (in any case); friends, chat and the ladder show the new
+name, and the old one is free for others.
+
 Friends: `AddFriend(username)`, `AnswerFriend`, `RemoveFriend`, `Friends()`; `InviteFriend(id)` from a custom room's
 lobby. Chat: `Chat("all" | "team", text)` in a room or match, `Chat("friend", text, id)` to a friend. Messages are passed
 on, never stored, at most 200 characters and 5 per 6 seconds, with slurs and insults masked (`Game/Names.cs`).

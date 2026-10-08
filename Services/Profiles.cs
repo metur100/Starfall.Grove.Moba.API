@@ -49,6 +49,12 @@ public sealed class Profile
     /// <summary>A password reset in progress: the hash of the emailed code and when it stops working.</summary>
     public string? ResetHash { get; set; }
     public DateTime? ResetExpires { get; set; }
+    /// <summary>Whether the player opened the link from the welcome email (or a reset email, which proves the same).</summary>
+    public bool EmailConfirmed { get; set; }
+    /// <summary>The hash of the emailed confirmation code, when it stops working, and when it was last sent.</summary>
+    public string? ConfirmHash { get; set; }
+    public DateTime? ConfirmExpires { get; set; }
+    public DateTime? ConfirmSent { get; set; }
 
     // ── friends (profile ids)
     public List<string> Friends { get; set; } = [];
@@ -81,7 +87,7 @@ public sealed record ProfileDto(
     string Id, string Name, int Coins, int Level, int Xp, int XpNext, List<string> Heroes, List<string> Skins,
     Dictionary<string, string> Equipped, string Charm, Dictionary<string, int> Rating, Dictionary<string, string> Rank,
     int Games, int Wins, int Kills, int Deaths, int Assists, Dictionary<string, int[]> HeroStats, bool FirstWinReady,
-    string[] Rotation, List<MatchRecord> Recent, string? Username, string? Email, int Requests, List<QuestDto> Quests)
+    string[] Rotation, List<MatchRecord> Recent, string? Username, string? Email, int Requests, List<QuestDto> Quests, bool EmailConfirmed)
 {
     public static ProfileDto Of(Profile p)
     {
@@ -90,7 +96,7 @@ public sealed record ProfileDto(
             return new(p.Id, p.Name, p.Coins, p.Level, p.Xp, Economy.XpToNext(p.Level), [.. p.Heroes], [.. p.Skins], new(p.Equipped), p.Charm,
                 new(p.Rating), p.Rating.ToDictionary(kv => kv.Key, kv => Economy.RankOf(kv.Value)), p.Games, p.Wins, p.Kills, p.Deaths, p.Assists,
                 p.HeroStats.ToDictionary(kv => kv.Key, kv => kv.Value.ToArray()), p.FirstWinReady(now), Economy.Rotation(now), [.. p.Recent],
-                p.Username, p.Email, p.Requests.Count, p.QuestsFor(now));
+                p.Username, p.Email, p.Requests.Count, p.QuestsFor(now), p.EmailConfirmed);
     }
 }
 
@@ -282,7 +288,9 @@ public sealed class ProfileStore(IConfiguration config, IWebHostEnvironment env,
             await c.OpenAsync();
             await using var cmd = new SqlCommand($"SELECT TOP 1 TokenHash FROM dbo.MobaProfiles WHERE {column} = @v", c);
             cmd.Parameters.AddWithValue("@v", value);
-            return await cmd.ExecuteScalarAsync() is string key ? await ByKeyAsync(key.Trim()) : null;
+            // The row can be a moment behind (a rename not written yet): only a profile that still matches counts.
+            if (await cmd.ExecuteScalarAsync() is not string key || await ByKeyAsync(key.Trim()) is not { } found) return null;
+            lock (found) return match(found) ? found : null;
         }
         foreach (var f in Directory.EnumerateFiles(_dir, "*.json"))
         {

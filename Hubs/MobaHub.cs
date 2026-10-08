@@ -92,9 +92,13 @@ public sealed class MobaHub(RoomManager rooms, Outbox outbox, ProfileStore profi
                 if (p.Registered) return new("This device is already signed in.", null, null);
                 p.Username = username; p.Name = username; p.Email = email; p.PasswordHash = Passwords.Hash(password);
             }
+            Func<Task> welcome;
+            lock (p) welcome = ConfirmationEmail(p, Emails.Welcome);
             profiles.Save(p);
             social.Online(Context.ConnectionId, p);
             log.LogInformation("New account {User}", username);
+            // The thank-you email goes out in the background, so signing up doesn't wait for the mail server.
+            _ = Task.Run(async () => { try { await welcome(); } catch (Exception e) { log.LogError(e, "Welcome email failed"); } });
             return new(null, ProfileDto.Of(p), null);
         }
         catch (Exception e) { log.LogError(e, "Register failed"); return new("Couldn't create your account. Try again in a moment.", null, null); }
@@ -176,6 +180,8 @@ public sealed class MobaHub(RoomManager rooms, Outbox outbox, ProfileStore profi
                         System.Text.Encoding.UTF8.GetBytes(p.ResetHash), System.Text.Encoding.UTF8.GetBytes(ProfileStore.Hash(parts[1]))))
                     return new("That reset link has expired or was already used. Ask for a new one.", null, null);
                 p.PasswordHash = Passwords.Hash(password); p.ResetHash = null; p.ResetExpires = null;
+                // The link came to their inbox, so the address is theirs.
+                p.EmailConfirmed = true; p.ConfirmHash = null; p.ConfirmExpires = null;
             }
             profiles.Save(p);
             await profiles.EndAllSessionsAsync(p.Key);
@@ -186,6 +192,83 @@ public sealed class MobaHub(RoomManager rooms, Outbox outbox, ProfileStore profi
             return new(null, ProfileDto.Of(p), token);
         }
         catch (Exception e) { log.LogError(e, "Reset failed"); return new("Couldn't reset your password. Try again in a moment.", null, null); }
+    }
+
+    /// <summary>Makes a new confirmation code for the profile (call under its lock or before anyone else sees it) and
+    /// returns the job that emails it, built with <paramref name="email"/> (the welcome email or the plain reminder).</summary>
+    private Func<Task> ConfirmationEmail(Profile p, Func<string, string, (string, string, string)> email)
+    {
+        var code = ProfileStore.NewToken() + ProfileStore.NewToken();
+        p.ConfirmHash = ProfileStore.Hash(code); p.ConfirmExpires = DateTime.UtcNow.AddDays(7); p.ConfirmSent = DateTime.UtcNow;
+        var link = $"{config["App:UiUrl"] ?? "https://metur100.github.io/Starfall.Grove.Moba.UI/"}?confirm={p.Id}.{code}";
+        var (to, name) = (p.Email!, p.Name);
+        return async () => { var (subject, text, html) = email(name, link); await mailer.SendAsync(to, subject, text, html); };
+    }
+
+    /// <summary>Confirms the account's email with the code from the welcome email's link. Works signed in or not
+    /// (the link may open on another device); a signed-in player gets their profile back.</summary>
+    public async Task<ShopResult> ConfirmEmail(string code)
+    {
+        var parts = (code ?? "").Split('.', 2);
+        if (parts.Length != 2) return new("That confirmation link isn't valid.", null);
+        try
+        {
+            if (await profiles.ByIdAsync(parts[0]) is not { Registered: true } p) return new("That confirmation link isn't valid.", null);
+            lock (p)
+            {
+                if (!p.EmailConfirmed)
+                {
+                    if (p.ConfirmHash == null || p.ConfirmExpires < DateTime.UtcNow || !System.Security.Cryptography.CryptographicOperations.FixedTimeEquals(
+                            System.Text.Encoding.UTF8.GetBytes(p.ConfirmHash), System.Text.Encoding.UTF8.GetBytes(ProfileStore.Hash(parts[1]))))
+                        return new("That confirmation link isn't valid or has expired. Sign in and ask for a new one on your profile.", null);
+                    p.EmailConfirmed = true; p.ConfirmHash = null; p.ConfirmExpires = null;
+                }
+            }
+            profiles.Save(p);
+            return new(null, Account?.Id == p.Id ? ProfileDto.Of(p) : null);
+        }
+        catch (Exception e) { log.LogError(e, "Confirm failed"); return new("Couldn't confirm your email. Try again in a moment.", null); }
+    }
+
+    /// <summary>Sends the confirmation link again (at most once a minute).</summary>
+    public async Task<string?> ResendConfirmation()
+    {
+        if (Account is not { } p) return "Sign in first.";
+        Func<Task> send;
+        lock (p)
+        {
+            if (p.EmailConfirmed) return "Your email is already confirmed.";
+            if (p.ConfirmSent > DateTime.UtcNow.AddMinutes(-1)) return "We just sent one. Check your inbox (and spam), or try again in a minute.";
+            send = ConfirmationEmail(p, Emails.Welcome);
+        }
+        profiles.Save(p);
+        try { await send(); return null; }
+        catch (Exception e) { log.LogError(e, "Resend confirmation failed"); return "Couldn't send the email. Try again in a moment."; }
+    }
+
+    /// <summary>Changes the account's username, if the new one is free. Friends, chat and the leaderboard show the new
+    /// name; logging in works with the new one (or the email).</summary>
+    public async Task<ShopResult> ChangeUsername(string username)
+    {
+        if (Account is not { } p) return new("Sign in first.", null);
+        username = (username ?? "").Trim();
+        if (!UsernameRx.IsMatch(username)) return new("Usernames are 3 to 16 letters, digits or _.", null);
+        if (Names.Offensive(username)) return new("Please choose a different username.", null);
+        await profiles.AccountLock.WaitAsync();
+        try
+        {
+            if (await profiles.ByUsernameAsync(username) is { } other && other.Id != p.Id) return new("That username is taken.", null);
+            lock (p)
+            {
+                if (p.Username == username) return new("That's already your username.", null);
+                p.Username = username; p.Name = username;
+            }
+            profiles.Save(p);
+            log.LogInformation("Account {Id} renamed to {User}", p.Id, username);
+            return new(null, ProfileDto.Of(p));
+        }
+        catch (Exception e) { log.LogError(e, "Rename failed"); return new("Couldn't change your username. Try again in a moment.", null); }
+        finally { profiles.AccountLock.Release(); }
     }
 
     // ───────────────────────────── friends and chat
