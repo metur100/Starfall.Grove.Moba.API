@@ -27,6 +27,8 @@ builder.Services.AddSingleton<MatchStore>();
 builder.Services.AddSingleton<ProfileStore>();
 builder.Services.AddSingleton<Matchmaker>();
 builder.Services.AddSingleton<Rewards>();
+builder.Services.AddSingleton<Social>();
+builder.Services.AddSingleton<Mailer>();
 builder.Services.AddHostedService<GameLoop>();
 
 var app = builder.Build();
@@ -41,6 +43,8 @@ app.MapGet("/api/health", (RoomManager rooms, MatchStore store, ProfileStore pro
     rooms = rooms.Rooms.Count,
     players = rooms.Seats.Count,
     searching = matchmaker.Searching,
+    online = app.Services.GetRequiredService<Social>().OnlineCount,
+    email = app.Services.GetRequiredService<Mailer>().Enabled ? "on" : "off",
     profiles = profiles.Mode,
     database = store.Ready ? "ready" : store.Connecting ? "connecting" : store.Enabled ? "unavailable" : "off",
     databaseError = store.Ready ? null : store.LastError,

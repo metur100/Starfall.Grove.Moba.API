@@ -27,6 +27,8 @@ dotnet run --launch-profile http     # http://localhost:5080
 | `Cors:Origins` | Sites allowed to connect. GitHub Pages (`https://metur100.github.io`) and Vite dev (`http://localhost:5173`) are in by default. |
 | `ConnectionStrings:Moba` | SQL Server for match history and player profiles. Empty = no history, and profiles are kept as JSON files under `App_Data/profiles` (fine for local play). |
 | `Matchmaking:BotFillSeconds` | How long the oldest player in a queue waits before bots fill the empty seats (default 25). |
+| `App:UiUrl` | The game's address, used in password reset links. |
+| `Smtp:Host`, `Port`, `EnableSsl`, `User`, `Password`, `From`, `FromName`, `ReportsTo` | The mail server for password reset emails and player reports. **Without a Host no email is sent** (the link is only written to the log). Put the real values in `appsettings.Production.json`, like the connection string. With Gmail: host `smtp.gmail.com`, port 587, your address as User and From, and an *app password* (Google account → Security → App passwords) as Password. |
 
 The real connection string goes in **`appsettings.Production.json`**, which is in `.gitignore` so the password never
 reaches GitHub. Keep that file on your machine; `dotnet publish` includes it in the deployment.
@@ -66,12 +68,26 @@ SignalR falls back to slower transports and the game will feel laggy.
 | `Hubs/MobaHub.cs` | Everything a client can call. |
 | `Services/` | The 30 Hz game loop, sending messages, match history, profiles (`Profiles.cs`), matchmaking (`Matchmaker.cs`) and match rewards (`Rewards.cs`). |
 
+## Accounts, friends and chat
+
+Playing needs an account. `Register(username, email, password)` turns the device's profile into one (any progress it
+already has is kept); `Login(username or email, password)` signs a device in and gives it its own token (a row in
+`dbo.MobaSessions`); `Logout` forgets it. Passwords are stored as salted PBKDF2-SHA256 hashes. Five wrong passwords lock a
+username for five minutes. `ForgotPassword(email)` emails a link (`App:UiUrl?reset=<id>.<code>`, valid one hour, one use);
+`ResetPassword(code, password)` sets the new password and signs every other device out. `DeleteProfile` deletes the
+account and profile for good.
+
+Friends: `AddFriend(username)`, `AnswerFriend`, `RemoveFriend`, `Friends()`; `InviteFriend(id)` from a custom room's
+lobby. Chat: `Chat("all" | "team", text)` in a room or match, `Chat("friend", text, id)` to a friend. Messages are passed
+on, never stored, at most 200 characters and 5 per 6 seconds, with slurs and insults masked (`Game/Names.cs`).
+`Block(id)` hides a player's chat and requests and ends the friendship; `Report(id, reason, message)` keeps a report in
+`dbo.MobaReports` and emails it to `Smtp:ReportsTo`.
+
 ## Players, coins and matchmaking
 
 A browser keeps a secret token; `Hello` ties a connection to that token's **profile** (stored by a hash of the token).
 A new player gets 600 coins and three heroes (Mira, Kael, Wren); one other hero is free each week. The rest, and three
-skins per hero (rare 600, epic 900, legendary 1500), are bought with coins. The token doubles as an account key the
-player can copy to another device.
+skins per hero (rare 600, epic 900, legendary 1500), are bought with coins.
 
 Every match pays coins and player experience: a battle win 120 / loss 50, a duel win 90 / loss 35, plus a little for
 kills and assists, 150 for the first win of the day and 100 per player level gained (400 every fifth). Custom rooms pay

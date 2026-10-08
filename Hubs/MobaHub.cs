@@ -7,6 +7,9 @@ namespace Starfall.Grove.Moba.Api.Hubs;
 
 public sealed record JoinResult(bool Ok, string? Error, string? Code, string? PlayerId);
 public sealed record HelloResult(bool Ok, string? Error, ProfileDto? Profile);
+/// <summary>The answer to signing up, in or resetting a password: an error, or the profile and (when this device
+/// should switch to a new sign-in) the token to keep.</summary>
+public sealed record AuthResult(string? Error, ProfileDto? Profile, string? Token);
 public sealed record ShopResult(string? Error, ProfileDto? Profile);
 /// <summary>What can be bought and chosen: hero prices, skins, charms and the rank ladder.</summary>
 public sealed record ShopDto(Dictionary<string, int> HeroPrices, SkinDef[] Skins, CharmDef[] Charms, RankDef[] Ranks, int FirstWinBonus, string[] Starters);
@@ -18,16 +21,15 @@ public sealed record CatalogDto(HeroDef[] Heroes, UpgradeOption[][] BasicTiers, 
 /// room's outbox).
 ///
 /// A browser keeps a secret token. <see cref="Hello"/> ties the connection to that token's profile (coins, heroes,
-/// skins, level, rating); everything that touches the profile works on the connection's own one.
+/// skins, level, rating); everything that touches the profile works on the connection's own one. Playing needs an
+/// account: <see cref="Register"/> turns the device's profile into one (username, email, password), and
+/// <see cref="Login"/> signs a device in to an existing one with its username and password.
+///
+/// Chat ("chat"), friends ("friends") and invites ("invite") go through <see cref="Social"/>.
 /// </summary>
-public sealed class MobaHub(RoomManager rooms, Outbox outbox, ProfileStore profiles, Matchmaker matchmaker) : Hub
+public sealed class MobaHub(RoomManager rooms, Outbox outbox, ProfileStore profiles, Matchmaker matchmaker, Social social, Mailer mailer, IConfiguration config, ILogger<MobaHub> log) : Hub
 {
-    private static string CleanName(string? name)
-    {
-        var n = new string((name ?? "").Where(c => !char.IsControl(c)).ToArray()).Trim();
-        if (n.Length > 16) n = n[..16];
-        return n.Length == 0 ? "Wanderer" : n;
-    }
+    private static string CleanName(string? name) => Names.Clean(name);
     private static bool BadToken(string? token) => string.IsNullOrWhiteSpace(token) || token.Length is < 16 or > 64;
 
     public static CatalogDto BuildCatalog() => new(Catalog.Heroes, Upgrades.BasicTiers, Upgrades.AbilityTiers, Upgrades.BasicCost, Upgrades.AbilityCost,
@@ -43,15 +45,18 @@ public sealed class MobaHub(RoomManager rooms, Outbox outbox, ProfileStore profi
     private string? Token => Context.Items.TryGetValue("token", out var t) ? t as string : null;
     private Profile? Me => Token is { } t ? profiles.Cached(t) : null;
 
-    /// <summary>Ties this connection to the player's profile (made on first visit) and returns it.</summary>
+    /// <summary>Ties this connection to the token's profile and returns it: null when this device has none yet (then
+    /// the player signs up or logs in), or a profile without a username (progress from before accounts, kept when
+    /// the player signs up).</summary>
     public async Task<HelloResult> Hello(string token, string name)
     {
         if (BadToken(token)) return new(false, "Bad token.", null);
         try
         {
-            var p = await profiles.GetAsync(token, CleanName(name));
+            var p = await profiles.TryGetAsync(token);
             Context.Items["token"] = token;
-            return new(true, null, ProfileDto.Of(p));
+            if (p is { Registered: true }) social.Online(Context.ConnectionId, p);
+            return new(true, null, p == null ? null : ProfileDto.Of(p));
         }
         catch (Exception)
         {
@@ -60,6 +65,258 @@ public sealed class MobaHub(RoomManager rooms, Outbox outbox, ProfileStore profi
     }
 
     public ProfileDto? GetProfile() => Me is { } p ? ProfileDto.Of(p) : null;
+
+    // ───────────────────────────── accounts
+
+    private static readonly System.Text.RegularExpressions.Regex UsernameRx = new("^[A-Za-z0-9_]{3,16}$");
+    private static readonly System.Text.RegularExpressions.Regex EmailRx = new(@"^[^@\s]{1,64}@[^@\s]+\.[^@\s]{2,}$");
+    private static readonly System.Collections.Concurrent.ConcurrentDictionary<string, (int Fails, DateTime Until)> LoginFails = new();
+
+    /// <summary>Makes an account: the device's profile (with any progress it has) gets a username, email and password.</summary>
+    public async Task<AuthResult> Register(string username, string email, string password)
+    {
+        if (Token is not { } token) return new("Connect first.", null, null);
+        username = (username ?? "").Trim(); email = (email ?? "").Trim();
+        if (!UsernameRx.IsMatch(username)) return new("Usernames are 3 to 16 letters, digits or _.", null, null);
+        if (Names.Offensive(username)) return new("Please choose a different username.", null, null);
+        if (email.Length > 254 || !EmailRx.IsMatch(email)) return new("That email address doesn't look right.", null, null);
+        if ((password ?? "").Length < 8 || password!.Length > 128) return new("Passwords need at least 8 characters.", null, null);
+        await profiles.AccountLock.WaitAsync();
+        try
+        {
+            if (await profiles.ByUsernameAsync(username) != null) return new("That username is taken.", null, null);
+            if (await profiles.ByEmailAsync(email) != null) return new("An account with that email already exists. Log in, or reset your password.", null, null);
+            var p = await profiles.GetAsync(token, username);
+            lock (p)
+            {
+                if (p.Registered) return new("This device is already signed in.", null, null);
+                p.Username = username; p.Name = username; p.Email = email; p.PasswordHash = Passwords.Hash(password);
+            }
+            profiles.Save(p);
+            social.Online(Context.ConnectionId, p);
+            log.LogInformation("New account {User}", username);
+            return new(null, ProfileDto.Of(p), null);
+        }
+        catch (Exception e) { log.LogError(e, "Register failed"); return new("Couldn't create your account. Try again in a moment.", null, null); }
+        finally { profiles.AccountLock.Release(); }
+    }
+
+    /// <summary>Signs this device in with a username (or email) and password. Returns the token the device keeps from
+    /// now on.</summary>
+    public async Task<AuthResult> Login(string username, string password)
+    {
+        var who = (username ?? "").Trim().ToLowerInvariant();
+        if (who.Length == 0 || string.IsNullOrEmpty(password)) return new("Enter your username and password.", null, null);
+        if (LoginFails.TryGetValue(who, out var f) && f.Fails >= 5 && f.Until > DateTime.UtcNow) return new("Too many attempts. Wait a few minutes and try again.", null, null);
+        try
+        {
+            var p = who.Contains('@') ? await profiles.ByEmailAsync(who) : await profiles.ByUsernameAsync(who);
+            string? hash; lock (p ?? new Profile()) hash = p?.PasswordHash;
+            if (p == null || !Passwords.Verify(password, hash))
+            {
+                LoginFails.AddOrUpdate(who, _ => (1, DateTime.UtcNow.AddMinutes(5)), (_, v) => (v.Fails + 1, DateTime.UtcNow.AddMinutes(5)));
+                return new("Wrong username or password.", null, null);
+            }
+            LoginFails.TryRemove(who, out _);
+            social.Offline(Context.ConnectionId);
+            var token = await profiles.NewSessionAsync(p);
+            Context.Items["token"] = token;
+            social.Online(Context.ConnectionId, p);
+            return new(null, ProfileDto.Of(p), token);
+        }
+        catch (Exception e) { log.LogError(e, "Login failed"); return new("Couldn't log in. Try again in a moment.", null, null); }
+    }
+
+    /// <summary>Signs this device out. The device then makes a new token and shows the login screen.</summary>
+    public async Task Logout()
+    {
+        matchmaker.Leave(Context.ConnectionId);
+        LeaveCurrent();
+        social.Offline(Context.ConnectionId);
+        if (Token is { } token) { try { await profiles.EndSessionAsync(token); } catch { /* it ends on the device anyway */ } }
+        Context.Items.Remove("token");
+    }
+
+    /// <summary>Emails a link to choose a new password. Always answers the same, so nobody learns which emails have
+    /// an account.</summary>
+    public async Task<string?> ForgotPassword(string email)
+    {
+        email = (email ?? "").Trim();
+        if (!EmailRx.IsMatch(email)) return "That email address doesn't look right.";
+        try
+        {
+            if (await profiles.ByEmailAsync(email) is { Registered: true } p)
+            {
+                var code = ProfileStore.NewToken() + ProfileStore.NewToken();
+                string id, name;
+                lock (p) { p.ResetHash = ProfileStore.Hash(code); p.ResetExpires = DateTime.UtcNow.AddHours(1); id = p.Id; name = p.Name; }
+                profiles.Save(p);
+                var link = $"{config["App:UiUrl"] ?? "https://metur100.github.io/Starfall.Grove.Moba.UI/"}?reset={id}.{code}";
+                var text = $"Hi {name},\n\nSomeone (hopefully you) asked to reset the password of your Mini Rift account. Open this link within an hour to choose a new one:\n\n{link}\n\nIf you didn't ask for this, ignore this email; your password stays the same.\n\nMini Rift · Starfall Grove";
+                var html = $"<p>Hi <b>{System.Net.WebUtility.HtmlEncode(name)}</b>,</p><p>Someone (hopefully you) asked to reset the password of your Mini Rift account. Open this link within an hour to choose a new one:</p><p><a href=\"{link}\" style=\"display:inline-block;padding:12px 22px;border-radius:12px;background:#f2c24e;color:#3b2a2f;font-weight:800;text-decoration:none\">Choose a new password</a></p><p style=\"color:#777\">Or copy this address into your browser: {link}</p><p style=\"color:#777\">If you didn't ask for this, ignore this email; your password stays the same.</p><p>Mini Rift · Starfall Grove</p>";
+                await mailer.SendAsync(email, "Reset your Mini Rift password", text, html);
+            }
+        }
+        catch (Exception e) { log.LogError(e, "Forgot password failed"); }
+        return null;
+    }
+
+    /// <summary>Sets a new password with the code from the reset email, signs every other device out, and signs this
+    /// one in.</summary>
+    public async Task<AuthResult> ResetPassword(string code, string password)
+    {
+        var parts = (code ?? "").Split('.', 2);
+        if (parts.Length != 2) return new("That reset link isn't valid.", null, null);
+        if ((password ?? "").Length < 8 || password!.Length > 128) return new("Passwords need at least 8 characters.", null, null);
+        try
+        {
+            if (await profiles.ByIdAsync(parts[0]) is not { } p) return new("That reset link isn't valid.", null, null);
+            lock (p)
+            {
+                if (p.ResetHash == null || p.ResetExpires < DateTime.UtcNow || !System.Security.Cryptography.CryptographicOperations.FixedTimeEquals(
+                        System.Text.Encoding.UTF8.GetBytes(p.ResetHash), System.Text.Encoding.UTF8.GetBytes(ProfileStore.Hash(parts[1]))))
+                    return new("That reset link has expired or was already used. Ask for a new one.", null, null);
+                p.PasswordHash = Passwords.Hash(password); p.ResetHash = null; p.ResetExpires = null;
+            }
+            profiles.Save(p);
+            await profiles.EndAllSessionsAsync(p.Key);
+            social.Offline(Context.ConnectionId);
+            var token = await profiles.NewSessionAsync(p);
+            Context.Items["token"] = token;
+            social.Online(Context.ConnectionId, p);
+            return new(null, ProfileDto.Of(p), token);
+        }
+        catch (Exception e) { log.LogError(e, "Reset failed"); return new("Couldn't reset your password. Try again in a moment.", null, null); }
+    }
+
+    // ───────────────────────────── friends and chat
+
+    private Profile? Account => Me is { Registered: true } p ? p : null;
+
+    public async Task<FriendsDto?> Friends() => Account is { } p ? await social.FriendsOfAsync(p) : null;
+
+    /// <summary>Sends a friend request by username (or accepts theirs, if they already asked).</summary>
+    public async Task<string?> AddFriend(string username)
+    {
+        if (Account is not { } me) return "Sign in first.";
+        var them = await profiles.ByUsernameAsync(username ?? "");
+        if (them is not { Registered: true } || them.Id == me.Id) return "No player with that username.";
+        bool already, theyAsked, blocked;
+        lock (me) { already = me.Friends.Contains(them.Id); theyAsked = me.Requests.Contains(them.Id); }
+        lock (them) blocked = them.Blocked.Contains(me.Id);
+        if (already) return $"{them.Name} is already your friend.";
+        if (theyAsked) return await AnswerFriend(them.Id, true);
+        if (!blocked) { lock (them) if (!them.Requests.Contains(me.Id)) them.Requests.Add(me.Id); profiles.Save(them); await social.PushFriendsAsync(them); social.Send(them.Id, "profile", ProfileDto.Of(them)); }
+        return null;
+    }
+
+    public async Task<string?> AnswerFriend(string id, bool accept)
+    {
+        if (Account is not { } me) return "Sign in first.";
+        bool had; lock (me) had = me.Requests.Remove(id);
+        if (!had) return "That request is gone.";
+        if (accept && await profiles.ByIdAsync(id) is { } them)
+        {
+            lock (me) if (!me.Friends.Contains(id)) me.Friends.Add(id);
+            lock (them) { if (!them.Friends.Contains(me.Id)) them.Friends.Add(me.Id); them.Requests.Remove(me.Id); }
+            profiles.Save(them);
+            await social.PushFriendsAsync(them);
+        }
+        profiles.Save(me);
+        await social.PushFriendsAsync(me);
+        social.Send(me.Id, "profile", ProfileDto.Of(me));
+        return null;
+    }
+
+    public async Task<string?> RemoveFriend(string id)
+    {
+        if (Account is not { } me) return "Sign in first.";
+        lock (me) me.Friends.Remove(id);
+        profiles.Save(me);
+        if (await profiles.ByIdAsync(id) is { } them) { lock (them) them.Friends.Remove(me.Id); profiles.Save(them); await social.PushFriendsAsync(them); }
+        await social.PushFriendsAsync(me);
+        return null;
+    }
+
+    /// <summary>Blocks a player: no chat or friend requests from them reach you, and any friendship ends.</summary>
+    public async Task<string?> Block(string id, bool block)
+    {
+        if (Account is not { } me) return "Sign in first.";
+        if (id == me.Id) return "That's you.";
+        lock (me)
+        {
+            if (block) { if (!me.Blocked.Contains(id)) me.Blocked.Add(id); me.Friends.Remove(id); me.Requests.Remove(id); }
+            else me.Blocked.Remove(id);
+        }
+        profiles.Save(me);
+        if (block && await profiles.ByIdAsync(id) is { } them) { lock (them) { them.Friends.Remove(me.Id); them.Requests.Remove(me.Id); } profiles.Save(them); await social.PushFriendsAsync(them); }
+        await social.PushFriendsAsync(me);
+        return null;
+    }
+
+    /// <summary>Reports a player (their name or a chat message) for us to review.</summary>
+    public async Task<string?> Report(string id, string reason, string? message)
+    {
+        if (Account is not { } me) return "Sign in first.";
+        if (await profiles.ByIdAsync(id) is not { } them) return "No such player.";
+        reason = (reason ?? "").Trim(); if (reason.Length > 200) reason = reason[..200];
+        message = message?.Trim(); if (message?.Length > 400) message = message[..400];
+        try
+        {
+            await profiles.ReportAsync(me.Id, them.Id, them.Name, reason.Length == 0 ? "No reason given" : reason, message);
+            if (mailer.ReportsTo is { } to)
+                _ = mailer.SendAsync(to, $"Mini Rift report: {them.Name}", $"{me.Name} ({me.Id}) reported {them.Name} ({them.Id}).\nReason: {reason}\nMessage: {message}",
+                    $"<p><b>{System.Net.WebUtility.HtmlEncode(me.Name)}</b> ({me.Id}) reported <b>{System.Net.WebUtility.HtmlEncode(them.Name)}</b> ({them.Id}).</p><p>Reason: {System.Net.WebUtility.HtmlEncode(reason)}</p><p>Message: {System.Net.WebUtility.HtmlEncode(message ?? "")}</p>");
+            return null;
+        }
+        catch (Exception e) { log.LogError(e, "Report failed"); return "Couldn't send the report. Try again in a moment."; }
+    }
+
+    /// <summary>Says something: "all" or "team" in your room or match, or "friend" to one friend.</summary>
+    public async Task<string?> Chat(string scope, string text, string? to)
+    {
+        if (Account is not { } me) return "Sign in first.";
+        var clean = Social.Clean(text);
+        if (clean == null) return null;
+        if (!social.CanSend(me.Id)) return "Slow down a little.";
+        if (scope == "friend")
+        {
+            bool friends; lock (me) friends = to != null && me.Friends.Contains(to);
+            if (!friends) return "You can only message your friends.";
+            if (!social.IsOnline(to!)) return "Your friend is offline.";
+            var msg = new ChatDto(Room.NewId(), "friend", me.Id, me.Name, clean, DateTimeOffset.UtcNow.ToUnixTimeMilliseconds(), 0, to);
+            await social.DeliverAsync(msg, [(to, null), (me.Id, null)]);
+            return null;
+        }
+        if (rooms.SeatOf(Context.ConnectionId) is not var (room, seat)) return "You're not in a room.";
+        List<(string?, string?)> targets;
+        int team;
+        lock (room.Lock)
+        {
+            team = seat.Team;
+            targets = room.Humans.Where(h => h.ConnectionId != null && (scope != "team" || h.Team == seat.Team)).Select(h => (h.Profile?.Id, h.ConnectionId)).ToList();
+        }
+        await social.DeliverAsync(new ChatDto(Room.NewId(), scope == "team" ? "team" : "all", me.Id, me.Name, clean, DateTimeOffset.UtcNow.ToUnixTimeMilliseconds(), team, null), targets);
+        return null;
+    }
+
+    /// <summary>Invites a friend to the custom room you are in.</summary>
+    public async Task<string?> InviteFriend(string id)
+    {
+        if (Account is not { } me) return "Sign in first.";
+        bool friends; lock (me) friends = me.Friends.Contains(id);
+        if (!friends) return "You can only invite your friends.";
+        if (!social.IsOnline(id)) return "Your friend is offline.";
+        if (rooms.SeatOf(Context.ConnectionId) is not var (room, _)) return "Make a room first.";
+        InviteDto invite;
+        lock (room.Lock)
+        {
+            if (room.Matchmade || room.Phase != Phase.Lobby) return "You can only invite friends to a custom room's lobby.";
+            invite = new InviteDto(me.Id, me.Name, room.Code, room.Type, room.Mode);
+        }
+        if (await profiles.ByIdAsync(id) is { } them) { bool blocked; lock (them) blocked = them.Blocked.Contains(me.Id); if (!blocked) social.Send(id, "invite", invite); }
+        return null;
+    }
 
     /// <summary>Changes something on the profile under its lock; saves and returns it when that went well.</summary>
     private ShopResult Change(Func<Profile, string?> change)
@@ -72,7 +329,19 @@ public sealed class MobaHub(RoomManager rooms, Outbox outbox, ProfileStore profi
         return new(null, ProfileDto.Of(p));
     }
 
-    public ShopResult SetName(string name) => Change(p => { p.Name = CleanName(name); return null; });
+    /// <summary>Deletes the player's account and profile for good: username, email, coins, heroes, skins, ratings,
+    /// friends and history. Every device signed in to it is signed out.</summary>
+    public async Task<string?> DeleteProfile()
+    {
+        if (Me is not { } p) return "Not signed in yet.";
+        matchmaker.Leave(Context.ConnectionId);
+        LeaveCurrent();
+        social.Offline(Context.ConnectionId);
+        try { await profiles.DeleteAsync(p); }
+        catch (Exception) { return "Couldn't delete your profile. Try again in a moment."; }
+        Context.Items.Remove("token");
+        return null;
+    }
 
     public ShopResult BuyHero(string hero) => Change(p =>
     {
@@ -123,7 +392,7 @@ public sealed class MobaHub(RoomManager rooms, Outbox outbox, ProfileStore profi
     /// <summary>Looks for a match of the given type and size. Leaves any room the player is in.</summary>
     public string? FindMatch(string type, int mode)
     {
-        if (Token is not { } token || Me is not { } p) return "Not signed in yet.";
+        if (Token is not { } token || Account is not { } p) return "Sign in first.";
         LeaveCurrent();
         return matchmaker.Join(Context.ConnectionId, token, p, type, mode);
     }
@@ -145,6 +414,7 @@ public sealed class MobaHub(RoomManager rooms, Outbox outbox, ProfileStore profi
     public JoinResult CreateRoom(string name, string token, int mode, string map)
     {
         if (BadToken(token)) return new(false, "Bad token.", null, null);
+        if (Account == null) return new(false, "Sign in first.", null, null);
         matchmaker.Leave(Context.ConnectionId);
         LeaveCurrent();
         var room = rooms.Create();
@@ -164,6 +434,7 @@ public sealed class MobaHub(RoomManager rooms, Outbox outbox, ProfileStore profi
     public JoinResult JoinRoom(string code, string name, string token)
     {
         if (BadToken(token)) return new(false, "Bad token.", null, null);
+        if (Account == null) return new(false, "Sign in first.", null, null);
         var room = rooms.Find(code);
         if (room == null) return new(false, "No room with that code.", null, null);
         lock (room.Lock)
@@ -320,6 +591,7 @@ public sealed class MobaHub(RoomManager rooms, Outbox outbox, ProfileStore profi
     public override Task OnDisconnectedAsync(Exception? exception)
     {
         matchmaker.Leave(Context.ConnectionId);
+        social.Offline(Context.ConnectionId);
         if (rooms.SeatOf(Context.ConnectionId) is var (room, p))
         {
             lock (room.Lock)
