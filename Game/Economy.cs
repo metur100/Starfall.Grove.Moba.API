@@ -5,6 +5,9 @@ public sealed record SkinDef(string Id, string Hero, string Name, string Tier, i
 /// <summary>A small extra spell every hero brings to a match, chosen in hero select.</summary>
 public sealed record CharmDef(string Id, string Name, string Text, float Cooldown, float DuelCooldown);
 public sealed record RankDef(string Name, int Min);
+/// <summary>A profile picture: an emblem or creature (drawn by the client by id), free or unlocked at a player level.
+/// Every hero's portrait ("hero:&lt;id&gt;") is a picture too, for players who own that hero.</summary>
+public sealed record AvatarDef(string Id, string Name, string Group, int Level);
 /// <summary>A daily quest: what to do (Goal times), and the coins it pays once done.</summary>
 public sealed record QuestDef(string Id, string Text, int Goal, int Coins);
 
@@ -46,6 +49,20 @@ public static class Economy
         new("elara_ancient", "elara", "Ancient Oak", "legendary", Legendary),
     ];
     public static readonly Dictionary<string, SkinDef> SkinById = Skins.ToDictionary(s => s.Id);
+
+    public static readonly AvatarDef[] Avatars =
+    [
+        new("star", "Star", "emblem", 1), new("moon", "Moon", "emblem", 1), new("sun", "Sun", "emblem", 1),
+        new("heart", "Heart", "emblem", 1), new("swords", "Swords", "emblem", 1), new("shield", "Shield", "emblem", 1),
+        new("potion", "Potion", "emblem", 1), new("flame", "Flame", "emblem", 1), new("tree", "Apple Tree", "emblem", 1),
+        new("mushroom", "Toadstool", "emblem", 1), new("snowflake", "Snowflake", "emblem", 1),
+        new("lantern", "Lantern", "emblem", 3), new("crystal", "Crystal", "emblem", 5), new("crown", "Crown", "emblem", 20),
+        new("tuft", "Tuft the Fox", "creature", 1), new("fenn", "Fenn", "creature", 1), new("sporecap", "Sporecap", "creature", 1),
+        new("briarling", "Briarling", "creature", 1), new("boar", "Bristleboar", "creature", 4), new("golem", "Crag Golem", "creature", 6),
+        new("imp", "Ember Imp", "creature", 8), new("wisp", "Wisp", "creature", 10), new("gloomling", "Gloomling", "creature", 12),
+        new("hulk", "Magma Hulk", "creature", 15), new("warden", "Bramble Warden", "creature", 25),
+    ];
+    public static readonly Dictionary<string, AvatarDef> AvatarById = Avatars.ToDictionary(a => a.Id);
 
     public static readonly CharmDef[] Charms =
     [

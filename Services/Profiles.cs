@@ -41,6 +41,8 @@ public sealed class Profile
     public string? QuestDay { get; set; }
     public Dictionary<string, int> QuestProgress { get; set; } = [];
     public DateTime Created { get; set; } = DateTime.UtcNow;
+    /// <summary>The chosen profile picture (an avatar id or "hero:<id>"); null: the portrait of the hero played most.</summary>
+    public string? Avatar { get; set; }
 
     // ── the account (null until the player registers)
     public string? Username { get; set; }
@@ -64,6 +66,8 @@ public sealed class Profile
     public List<string> Blocked { get; set; } = [];
 
     [JsonIgnore] public bool Registered => Username != null;
+    /// <summary>The picture others see: the chosen one, else the hero played most (else the first owned).</summary>
+    [JsonIgnore] public string Picture => Avatar ?? "hero:" + (HeroStats.OrderByDescending(kv => kv.Value.FirstOrDefault()).Select(kv => kv.Key).FirstOrDefault(Heroes.Contains) ?? Heroes.FirstOrDefault() ?? "mira");
     public int RatingFor(string type) => Rating.TryGetValue(type, out var r) ? r : Economy.StartRating;
     public bool FirstWinReady(DateTime utc) => FirstWinDay != utc.ToString("yyyy-MM-dd");
     /// <summary>Heroes this player may pick: owned ones and this week's free ones.</summary>
@@ -87,7 +91,7 @@ public sealed record ProfileDto(
     string Id, string Name, int Coins, int Level, int Xp, int XpNext, List<string> Heroes, List<string> Skins,
     Dictionary<string, string> Equipped, string Charm, Dictionary<string, int> Rating, Dictionary<string, string> Rank,
     int Games, int Wins, int Kills, int Deaths, int Assists, Dictionary<string, int[]> HeroStats, bool FirstWinReady,
-    string[] Rotation, List<MatchRecord> Recent, string? Username, string? Email, int Requests, List<QuestDto> Quests, bool EmailConfirmed)
+    string[] Rotation, List<MatchRecord> Recent, string? Username, string? Email, int Requests, List<QuestDto> Quests, bool EmailConfirmed, string Avatar)
 {
     public static ProfileDto Of(Profile p)
     {
@@ -96,11 +100,11 @@ public sealed record ProfileDto(
             return new(p.Id, p.Name, p.Coins, p.Level, p.Xp, Economy.XpToNext(p.Level), [.. p.Heroes], [.. p.Skins], new(p.Equipped), p.Charm,
                 new(p.Rating), p.Rating.ToDictionary(kv => kv.Key, kv => Economy.RankOf(kv.Value)), p.Games, p.Wins, p.Kills, p.Deaths, p.Assists,
                 p.HeroStats.ToDictionary(kv => kv.Key, kv => kv.Value.ToArray()), p.FirstWinReady(now), Economy.Rotation(now), [.. p.Recent],
-                p.Username, p.Email, p.Requests.Count, p.QuestsFor(now), p.EmailConfirmed);
+                p.Username, p.Email, p.Requests.Count, p.QuestsFor(now), p.EmailConfirmed, p.Picture);
     }
 }
 
-public sealed record LeaderRow(string Name, int Level, int Rating, string Rank, int Wins, int Games);
+public sealed record LeaderRow(string Name, int Level, int Rating, string Rank, int Wins, int Games, string Avatar);
 
 /// <summary>Passwords are kept as salted PBKDF2-SHA256 hashes, never as they are typed.</summary>
 public static class Passwords
@@ -495,11 +499,16 @@ public sealed class ProfileStore(IConfiguration config, IWebHostEnvironment env,
             var list = new List<LeaderRow>();
             await using var c = new SqlConnection(_cs);
             await c.OpenAsync();
-            await using var cmd = new SqlCommand($"SELECT TOP (@n) Name, Level, {col}, Wins, Games FROM dbo.MobaProfiles WHERE Games > 0 ORDER BY {col} DESC, Wins DESC", c);
+            await using var cmd = new SqlCommand($"SELECT TOP (@n) Name, Level, {col}, Wins, Games, TokenHash, Data FROM dbo.MobaProfiles WHERE Games > 0 ORDER BY {col} DESC, Wins DESC", c);
             cmd.Parameters.AddWithValue("@n", Math.Clamp(count, 1, 100));
             await using var rd = await cmd.ExecuteReaderAsync();
             while (await rd.ReadAsync())
-                list.Add(new(rd.GetString(0), rd.GetInt32(1), rd.GetInt32(2), Economy.RankOf(rd.GetInt32(2)), rd.GetInt32(3), rd.GetInt32(4)));
+            {
+                // The picture lives in the profile's data (the cached copy is the freshest).
+                var picture = "star";
+                try { if ((_cache.GetValueOrDefault(rd.GetString(5).Trim()) ?? JsonSerializer.Deserialize<Profile>(rd.GetString(6), Json)) is { } p) lock (p) picture = p.Picture; } catch { /* keep the star */ }
+                list.Add(new(rd.GetString(0), rd.GetInt32(1), rd.GetInt32(2), Economy.RankOf(rd.GetInt32(2)), rd.GetInt32(3), rd.GetInt32(4), picture));
+            }
             return list;
         }
         // Without a database: everyone saved on this machine.
@@ -507,6 +516,6 @@ public sealed class ProfileStore(IConfiguration config, IWebHostEnvironment env,
         foreach (var f in Directory.EnumerateFiles(_dir, "*.json"))
             try { if (JsonSerializer.Deserialize<Profile>(await File.ReadAllTextAsync(f), Json) is { } p) all.Add(_cache.GetValueOrDefault(Path.GetFileNameWithoutExtension(f)) ?? p); } catch { /* skip a broken file */ }
         return all.Where(p => p.Games > 0).OrderByDescending(p => p.RatingFor(type)).ThenByDescending(p => p.Wins).Take(count)
-            .Select(p => new LeaderRow(p.Name, p.Level, p.RatingFor(type), Economy.RankOf(p.RatingFor(type)), p.Wins, p.Games)).ToList();
+            .Select(p => { lock (p) return new LeaderRow(p.Name, p.Level, p.RatingFor(type), Economy.RankOf(p.RatingFor(type)), p.Wins, p.Games, p.Picture); }).ToList();
     }
 }

@@ -5,7 +5,7 @@ using Starfall.Grove.Moba.Api.Rooms;
 namespace Starfall.Grove.Moba.Api.Services;
 
 /// <summary>A friend (or a request, or a blocked player) as a list shows them.</summary>
-public sealed record FriendDto(string Id, string Name, int Level, string Rank, bool Online, string Status);
+public sealed record FriendDto(string Id, string Name, int Level, string Rank, bool Online, string Status, string Avatar);
 public sealed record FriendsDto(List<FriendDto> Friends, List<FriendDto> Requests, List<FriendDto> Blocked);
 /// <summary>A chat message. Scope: "all" (everyone in the room or match), "team", or "friend" (a private message;
 /// To is the other player's id).</summary>
@@ -70,7 +70,7 @@ public sealed class Social(ProfileStore profiles, Outbox outbox, RoomManager roo
             var list = new List<FriendDto>();
             foreach (var id in ids)
                 if (await profiles.ByIdAsync(id) is { } f)
-                    lock (f) list.Add(new FriendDto(f.Id, f.Name, f.Level, Economy.RankOf(f.RatingFor("battle")), IsOnline(f.Id), StatusOf(f.Id)));
+                    lock (f) list.Add(new FriendDto(f.Id, f.Name, f.Level, Economy.RankOf(f.RatingFor("battle")), IsOnline(f.Id), StatusOf(f.Id), f.Picture));
             return list;
         }
         var fl = await Load(friends);

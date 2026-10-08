@@ -85,6 +85,11 @@ is not needed to play; the profile shows a reminder until it's done. `ChangeUser
 the same rules as signing up, if no other account has the name (in any case); friends, chat and the ladder show the new
 name, and the old one is free for others.
 
+`SetAvatar(id)` chooses the profile picture: one of `Economy.Avatars` (emblems and creatures, some unlocked at a
+player level, listed in the catalog's `shop.avatars`) or `hero:<id>` for a hero the player owns. Until they choose, the
+picture is the portrait of the hero they played most (`Profile.Picture`). The profile, friend lists and the ladder carry
+it as `avatar`; the client draws it by id.
+
 Friends: `AddFriend(username)`, `AnswerFriend`, `RemoveFriend`, `Friends()`; `InviteFriend(id)` from a custom room's
 lobby. Chat: `Chat("all" | "team", text)` in a room or match, `Chat("friend", text, id)` to a friend. Messages are passed
 on, never stored, at most 200 characters and 5 per 6 seconds, with slurs and insults masked (`Game/Names.cs`).

@@ -12,7 +12,7 @@ public sealed record HelloResult(bool Ok, string? Error, ProfileDto? Profile);
 public sealed record AuthResult(string? Error, ProfileDto? Profile, string? Token);
 public sealed record ShopResult(string? Error, ProfileDto? Profile);
 /// <summary>What can be bought and chosen: hero prices, skins, charms and the rank ladder.</summary>
-public sealed record ShopDto(Dictionary<string, int> HeroPrices, SkinDef[] Skins, CharmDef[] Charms, RankDef[] Ranks, int FirstWinBonus, string[] Starters);
+public sealed record ShopDto(Dictionary<string, int> HeroPrices, SkinDef[] Skins, CharmDef[] Charms, RankDef[] Ranks, int FirstWinBonus, string[] Starters, AvatarDef[] Avatars);
 public sealed record CatalogDto(HeroDef[] Heroes, UpgradeOption[][] BasicTiers, UpgradeOption[][] AbilityTiers, int[] BasicCost, int[] AbilityCost, int[] UltCost, int UltLevel, int MaxLevel, object[] Maps, ShopDto Shop);
 
 /// <summary>
@@ -34,7 +34,7 @@ public sealed class MobaHub(RoomManager rooms, Outbox outbox, ProfileStore profi
 
     public static CatalogDto BuildCatalog() => new(Catalog.Heroes, Upgrades.BasicTiers, Upgrades.AbilityTiers, Upgrades.BasicCost, Upgrades.AbilityCost,
         Upgrades.UltCost, Catalog.UltLevel, Catalog.MaxLevel, Maps.List.Select(m => (object)new { m.Id, m.Name, m.Theme, m.Type, m.Lanes, m.Blurb }).ToArray(),
-        new ShopDto(Economy.HeroPrices, Economy.Skins, Economy.Charms, Economy.Ranks, Economy.FirstWinBonus, Economy.Starters));
+        new ShopDto(Economy.HeroPrices, Economy.Skins, Economy.Charms, Economy.Ranks, Economy.FirstWinBonus, Economy.Starters, Economy.Avatars));
 
     public CatalogDto GetCatalog() => BuildCatalog();
 
@@ -454,6 +454,19 @@ public sealed class MobaHub(RoomManager rooms, Outbox outbox, ProfileStore profi
         if (!Economy.SkinById.TryGetValue(skin, out var s) || s.Hero != hero) return "That skin isn't for this hero.";
         if (!p.Skins.Contains(skin)) return "You don't own this skin.";
         p.Equipped[hero] = skin;
+        return null;
+    });
+
+    /// <summary>Chooses the profile picture: an emblem or creature (some unlock at a level), or the portrait of a hero
+    /// the player owns.</summary>
+    public ShopResult SetAvatar(string avatar) => Change(p =>
+    {
+        avatar ??= "";
+        if (avatar.StartsWith("hero:"))
+        { if (!p.Heroes.Contains(avatar[5..])) return "Unlock that hero first."; }
+        else if (!Economy.AvatarById.TryGetValue(avatar, out var a)) return "Unknown picture.";
+        else if (p.Level < a.Level) return $"Reach level {a.Level} to use this picture.";
+        p.Avatar = avatar;
         return null;
     });
 
