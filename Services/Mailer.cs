@@ -1,5 +1,6 @@
 using System.Net;
 using System.Net.Mail;
+using System.Text;
 
 namespace Starfall.Grove.Moba.Api.Services;
 
@@ -33,9 +34,17 @@ public sealed class Mailer(IConfiguration config, ILogger<Mailer> log)
                 DeliveryMethod = SmtpDeliveryMethod.Network,
                 Timeout = 15000,
             };
-            using var msg = new MailMessage { From = new MailAddress(_smtp["From"] ?? _smtp["User"]!, _smtp["FromName"] ?? "Mini Rift"), Subject = subject, Body = html, IsBodyHtml = true };
+            using var msg = new MailMessage
+            {
+                From = new MailAddress(_smtp["From"] ?? _smtp["User"]!, _smtp["FromName"] ?? "Mini Rift"), Subject = subject,
+                SubjectEncoding = Encoding.UTF8, HeadersEncoding = Encoding.UTF8,
+            };
             msg.To.Add(to);
-            msg.AlternateViews.Add(AlternateView.CreateAlternateViewFromString(text, null, "text/plain"));
+            // Both versions as alternatives, plain text first and HTML last (mail programs show the last one they can).
+            // Not Body + IsBodyHtml: with alternate views added, .NET sends the Body as text/plain, so the HTML showed
+            // up as code.
+            msg.AlternateViews.Add(AlternateView.CreateAlternateViewFromString(text, Encoding.UTF8, "text/plain"));
+            msg.AlternateViews.Add(AlternateView.CreateAlternateViewFromString(html, Encoding.UTF8, "text/html"));
             await client.SendMailAsync(msg);
             return true;
         }
