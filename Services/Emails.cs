@@ -81,7 +81,7 @@ public static class Emails
               </td></tr>
               <tr><td align="center" style="padding:22px 10px 0;font:400 12px/1.6 {Font};color:#A894AE">
                 Mini Rift · a Starfall Grove game<br>
-                <a href="https://starfallgrove.eu/support/" style="color:{Gold};text-decoration:none">Help</a> &nbsp;·&nbsp; <a href="https://starfallgrove.eu/privacy/" style="color:{Gold};text-decoration:none">Privacy</a>
+                <a href="https://starfallgrove.eu/support/" style="color:{Gold};text-decoration:none">Help</a> &nbsp;·&nbsp; <a href="https://starfallgrove.eu/minirift/privacy/" style="color:{Gold};text-decoration:none">Privacy</a>
               </td></tr>
             </table>
           </td></tr>
